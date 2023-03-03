@@ -81,13 +81,6 @@ struct IterationStats
     {}
 };
 
-struct PIBTPPS_option
-{
-    int windowSize;
-    bool winPIBTSoft;
-    int timestepLimit;
-};
-
 // Only for three-tuples of std::hash-able types for simplicity.
 // You can of course template this struct to allow other hash functions
 /*struct three_tuple_hash {

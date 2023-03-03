@@ -1,0 +1,41 @@
+#include "plog/Appenders/ColorConsoleAppender.h"
+#include "plog/Formatters/TxtFormatter.h"
+#include "plog/Initializers/ConsoleInitializer.h"
+#include <plog/Log.h>
+
+#include "common.h"
+#include <boost/program_options.hpp>
+
+int
+main(int argc, char** argv)
+{
+
+    static plog::ColorConsoleAppender<plog::TxtFormatter> consoleAppender;
+    plog::init(plog::error, &consoleAppender);
+
+    namespace po = boost::program_options;
+    po::options_description desc("Allowed options");
+    desc.add_options()("help", "Produce help message");
+    desc.add_options()("map,m", po::value<string>()->required(), "Input file for map");
+    desc.add_options()("agents,a", po::value<string>()->required(), "Input file for agents");
+    desc.add_options()("output,o", po::value<string>(), "Output file for schedule");
+    desc.add_options()(
+      "cutoffTime,t", po::value<double>()->default_value(7200), "Cutoff time (seconds)");
+    desc.add_options()(
+      "agentNum,k", po::value<int>()->default_value(0), "Number of agents to plan for");
+    desc.add_options()("neighborSize,n", po::value<int>()->default_value(8))
+      desc.add_options()("severity,d", po::value<int>()->default_value(0), "Debugging level");
+
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+
+    if (vm.count("help")) {
+        plog::get()->setMaxSeverity(plog::debug);
+        PLOGD << desc << endl;
+        return 1;
+    }
+
+    po::notify(vm);
+
+    srand((int)time(0));
+}
