@@ -1,19 +1,21 @@
 #pragma once
 
 #include "common.hpp"
+#include <plog/Log.h>
 
 class Instance
 {
   protected:
     vector<bool> map;
     string map_fname;
-    string agent_fname;
+    string agent_task_fname;
 
-    int num_of_agents;
-    vector<int> start_locations;
+    int num_of_tasks, num_of_agents;
+    vector<int> task_locations, start_locations;
+    vector<pair<int, int>> task_dependencies;
 
     bool loadMap();
-    bool loadAgents();
+    bool loadAgentsAndTasks();
     void saveMap() const;
     void printMap() const;
     void saveAgents() const;
@@ -27,11 +29,11 @@ class Instance
 
     Instance() {}
     Instance(const string& map_fname,
-             const string& agent_fname,
+             const string& agent_task_fname,
              int num_of_agents = 0,
+             int num_of_tasks = 0,
              int num_of_rows = 0,
-             int num_of_cols = 0,
-             int warehouse_width = 0);
+             int num_of_cols = 0);
 
     void printAgents() const;
     inline bool isObstacle(int loc) const { return map[loc]; }

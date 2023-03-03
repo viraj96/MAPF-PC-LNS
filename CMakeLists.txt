@@ -5,14 +5,14 @@ set(CMAKE_CXX_STANDARD 17)
 add_compile_options(-Wall -Wextra -g)
 
 find_package(plog)
-find_package(BOOST 1.49.0 REQUIRED COMPONENTS program_options system filesystem)
+find_package(Boost 1.49.0 REQUIRED COMPONENTS program_options system filesystem)
 
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${BOOST_INCLUDE_DIRS})
+    ${Boost_INCLUDE_DIRS})
 
 file(GLOB SOURCES "src/*.cpp")
 
 add_executable(mapf_pc_lns ${SOURCES})
-target_link_libraries(mapf_pc_lns ${BOOST_LIBRARIES} plog::plog)
+target_link_libraries(mapf_pc_lns ${Boost_LIBRARIES} plog::plog)
 

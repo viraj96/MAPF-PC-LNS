@@ -3,7 +3,8 @@
 #include "plog/Initializers/ConsoleInitializer.h"
 #include <plog/Log.h>
 
-#include "common.h"
+#include "common.hpp"
+#include "instance.hpp"
 #include <boost/program_options.hpp>
 
 int
@@ -23,8 +24,11 @@ main(int argc, char** argv)
       "cutoffTime,t", po::value<double>()->default_value(7200), "Cutoff time (seconds)");
     desc.add_options()(
       "agentNum,k", po::value<int>()->default_value(0), "Number of agents to plan for");
-    desc.add_options()("neighborSize,n", po::value<int>()->default_value(8))
-      desc.add_options()("severity,d", po::value<int>()->default_value(0), "Debugging level");
+    desc.add_options()(
+      "taskNum,l", po::value<int>()->default_value(0), "Number of tasks to plan for");
+    desc.add_options()(
+      "neighborSize,n", po::value<int>()->default_value(8), "Size of the neighborhood");
+    desc.add_options()("severity,d", po::value<int>()->default_value(0), "Debugging level");
 
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -38,4 +42,9 @@ main(int argc, char** argv)
     po::notify(vm);
 
     srand((int)time(0));
+
+    Instance instance(vm["map"].as<string>(),
+                      vm["agents"].as<string>(),
+                      vm["agentNum"].as<int>(),
+                      vm["taskNum"].as<int>());
 }
