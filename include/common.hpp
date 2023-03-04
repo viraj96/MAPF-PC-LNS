@@ -8,10 +8,8 @@
 #include <iomanip>  // std::setprecision
 #include <iostream> // std::cout, std::fixed
 #include <list>
-#include <map>
 #include <set>
 #include <tuple>
-#include <utility>
 #include <vector>
 
 using boost::unordered_map;
@@ -23,6 +21,7 @@ using std::clock;
 using std::cout;
 using std::endl;
 using std::get;
+using std::hash;
 using std::list;
 using std::make_pair;
 using std::make_shared;
@@ -48,50 +47,36 @@ typedef std::chrono::duration<float> fsec;
 
 struct PathEntry
 {
+    bool is_goal;
     int location = -1;
-    explicit PathEntry(int loc = -1) { location = loc; }
 };
 
-typedef vector<PathEntry> Path;
+struct Path
+{
+    int begin_time = 0;
+    int end_time() { return begin_time + size() - 1; }
+
+    vector<PathEntry> path;
+    vector<int> timestamps;
+
+    bool empty() const { return path.empty(); }
+    size_t size() const { return path.size(); }
+    PathEntry& back() { return path.back(); }
+    PathEntry& front() { return path.front(); }
+    const PathEntry& back() const { return path.back(); }
+    const PathEntry& front() const { return path.front(); }
+    PathEntry& at(int idx) { return path[idx]; }
+
+    PathEntry& operator[](int idx) { return path[idx]; }
+    const PathEntry& operator[](int idx) const { return path[idx]; }
+
+    Path() {}
+    Path(int size)
+      : path(vector<PathEntry>(size))
+    {}
+};
+
 std::ostream&
 operator<<(std::ostream& os, const Path& path);
 bool
 isSamePath(const Path& p1, const Path& p2);
-
-struct IterationStats
-{
-    int sum_of_costs;
-    double runtime;
-    int num_of_agents;
-    string algorithm;
-    int sum_of_costs_lowerbound;
-    int num_of_colliding_pairs;
-    IterationStats(int num_of_agents,
-                   int sum_of_costs,
-                   double runtime,
-                   const string& algorithm,
-                   int sum_of_costs_lowerbound = 0,
-                   int num_of_colliding_pairs = 0)
-      : num_of_agents(num_of_agents)
-      , sum_of_costs(sum_of_costs)
-      , runtime(runtime)
-      , sum_of_costs_lowerbound(sum_of_costs_lowerbound)
-      , algorithm(algorithm)
-      , num_of_colliding_pairs(num_of_colliding_pairs)
-    {}
-};
-
-// Only for three-tuples of std::hash-able types for simplicity.
-// You can of course template this struct to allow other hash functions
-/*struct three_tuple_hash {
-    template <class T1, class T2, class T3>
-    std::size_t operator () (const std::tuple<T1, T2, T3> &p) const {
-        auto h1 = std::hash<T1>{}(get<0>(p));
-        auto h2 = std::hash<T2>{}(get<1>(p));
-        auto h3 = std::hash<T3>{}(get<2>(p));
-        // Mainly for demonstration purposes, i.e. works but is overly simple
-        // In the real world, use sth. like boost.hash_combine
-        return h1 ^ h2 ^ h3;
-    }
-};*/
-

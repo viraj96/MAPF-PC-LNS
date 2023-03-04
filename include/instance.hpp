@@ -21,6 +21,7 @@ class Instance
     void saveAgents() const;
 
     bool isConnected(int start, int goal);
+    friend class SingleAgentSolver;
 
   public:
     int num_of_cols;
