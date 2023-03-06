@@ -10,9 +10,10 @@ class Instance
     string map_fname;
     string agent_task_fname;
 
-    int num_of_tasks, num_of_agents;
+    int num_of_agents, num_of_tasks;
+    vector<vector<int>> task_assignments;
     vector<int> task_locations, start_locations;
-    vector<pair<int, int>> task_dependencies;
+    unordered_map<int, vector<int>> task_dependencies;
 
     bool loadMap();
     bool loadAgentsAndTasks();
@@ -32,14 +33,18 @@ class Instance
     Instance(const string& map_fname,
              const string& agent_task_fname,
              int num_of_agents = 0,
-             int num_of_tasks = 0,
-             int num_of_rows = 0,
-             int num_of_cols = 0);
+             int num_of_tasks = 0);
 
     void printAgents() const;
-    inline bool isObstacle(int loc) const { return map[loc]; }
-    inline bool validMove(int curr, int next) const;
+    void assignTaskToAgent(int agent, int task);
     list<int> getNeighbors(int curr) const;
+    inline bool isObstacle(int loc) const { return map[loc]; }
+    inline bool validMove(int curr, int next) const
+    {
+        if (next < 0 || next >= map_size || map[next])
+            return false;
+        return getManhattanDistance(curr, next) < 2;
+    };
 
     inline int linearizeCoordinate(int row, int col) const
     {
@@ -52,7 +57,12 @@ class Instance
         return make_pair(getRowCoordinate(id), getColCoordinate(id));
     }
     inline int getCols() const { return num_of_cols; }
-
+    inline int getAgentNum() const { return num_of_agents; }
+    inline int getTasksNum() const { return num_of_tasks; }
+    inline vector<int> getTaskLocations() const { return task_locations; }
+    inline vector<int> getStartLocations() const { return start_locations; }
+    inline unordered_map<int, vector<int>> getTaskDependencies() const { return task_dependencies; }
+    inline vector<vector<int>> getTaskAssignments() const { return task_assignments; }
     inline int getManhattanDistance(int loc1, int loc2) const
     {
         int loc1_x = getRowCoordinate(loc1);

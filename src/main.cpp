@@ -5,6 +5,7 @@
 
 #include "common.hpp"
 #include "instance.hpp"
+#include "utils.hpp"
 #include <boost/program_options.hpp>
 
 int
@@ -40,6 +41,7 @@ main(int argc, char** argv)
     }
 
     po::notify(vm);
+    plog::get()->setMaxSeverity(static_cast<plog::Severity>(vm["severity"].as<int>()));
 
     srand((int)time(0));
 
@@ -47,4 +49,29 @@ main(int argc, char** argv)
                       vm["agents"].as<string>(),
                       vm["agentNum"].as<int>(),
                       vm["taskNum"].as<int>());
+
+    for (int i = 0; i < instance.getAgentNum(); i++) {
+        pair<int, int> location = instance.getCoordinate(instance.getStartLocations()[i]);
+        PLOGD << "Agent " << i << " starts at :(" << location.first << ", " << location.second
+              << ")\n";
+    }
+    for (int i = 0; i < instance.getTasksNum(); i++) {
+        pair<int, int> location = instance.getCoordinate(instance.getTaskLocations()[i]);
+        PLOGD << "Task " << i << " starts at :(" << location.first << ", " << location.second
+              << ")\n";
+    }
+    for (pair<int, vector<int>> dependencies : instance.getTaskDependencies()) {
+        PLOGD << "Task  " << dependencies.first << " has the following dependent tasks\n";
+        for (int task : dependencies.second)
+            PLOGD << "\t Task : " << task << "\n";
+    }
+    greedy_task_assignment(&instance);
+
+    int agentNum = 0;
+    for (vector<int> task_assignment : instance.getTaskAssignments()) {
+        PLOGI << "Task assignments for " << agentNum << ":\n";
+        for (int task : task_assignment)
+            PLOGI << "\t Task " << task << "\n";
+        agentNum++;
+    }
 }

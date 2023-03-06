@@ -4,9 +4,7 @@
 Instance::Instance(const string& map_fname,
                    const string& agent_task_fname,
                    int num_of_agents,
-                   int num_of_tasks,
-                   int num_of_rows,
-                   int num_of_cols)
+                   int num_of_tasks)
   : map_fname(map_fname)
   , agent_task_fname(agent_task_fname)
   , num_of_agents(num_of_agents)
@@ -25,6 +23,12 @@ Instance::Instance(const string& map_fname,
         PLOGE << "Agent and task file " << agent_task_fname << " not found.\n";
         exit(-1);
     }
+}
+
+void
+Instance::assignTaskToAgent(int agent, int task)
+{
+    task_assignments[agent].push_back(task);
 }
 
 bool
@@ -93,6 +97,7 @@ Instance::loadAgentsAndTasks()
 
     // Reading the agent start locations
     start_locations.resize(num_of_agents);
+    task_assignments.resize(num_of_agents);
 
     for (int i = 0; i < num_of_agents; i++) {
         getline(file, line);
@@ -136,7 +141,7 @@ Instance::loadAgentsAndTasks()
 
     getline(file, line);
     int num_dependencies = atoi(line.c_str());
-    task_dependencies.resize(num_dependencies);
+    vector<pair<int, int>> temporal_dependencies;
 
     for (int i = 0; i < num_dependencies; i++) {
         getline(file, line);
@@ -145,7 +150,13 @@ Instance::loadAgentsAndTasks()
         int predecessor = atoi((*begin).c_str());
         begin++;
         int successor = atoi((*begin).c_str());
-        task_dependencies.push_back(make_pair(predecessor, successor));
+        temporal_dependencies.push_back(make_pair(predecessor, successor));
+    }
+
+    for (pair<int, int> dependency : temporal_dependencies) {
+        int i, j;
+        tie(i, j) = dependency;
+        task_dependencies[j].push_back(i);
     }
 
     PLOGD << "# Agents: " << num_of_agents << "\t # Tasks: " << num_of_tasks
@@ -153,4 +164,15 @@ Instance::loadAgentsAndTasks()
 
     file.close();
     return true;
+}
+
+list<int>
+Instance::getNeighbors(int current) const
+{
+    list<int> neighbors;
+    int candidates[4] = { current + 1, current - 1, current + num_of_cols, current - num_of_cols };
+    for (int next : candidates)
+        if (validMove(current, next))
+            neighbors.emplace_back(next);
+    return neighbors;
 }

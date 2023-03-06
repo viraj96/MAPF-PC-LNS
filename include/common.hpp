@@ -26,6 +26,7 @@ using std::list;
 using std::make_pair;
 using std::make_shared;
 using std::make_tuple;
+using std::make_unique;
 using std::map;
 using std::max;
 using std::min;
@@ -36,10 +37,13 @@ using std::shared_ptr;
 using std::string;
 using std::tie;
 using std::tuple;
+using std::unique_ptr;
 using std::vector;
 using namespace std::chrono;
 typedef std::chrono::high_resolution_clock Time;
 typedef std::chrono::duration<float> fsec;
+typedef std::priority_queue<pair<int, int>, vector<pair<int, int>>, std::greater<pair<int, int>>>
+  pq;
 
 #define MAX_TIMESTEP INT_MAX / 2
 #define MAX_COST INT_MAX / 2

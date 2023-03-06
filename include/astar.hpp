@@ -31,7 +31,7 @@ class LLNode
     {
         int operator()(const LLNode* lhs, const LLNode* rhs) const
         {
-            for (int i = 0; i < min(lhs->timestamps.size(), rhs->timestamps.size()); i++)
+            for (auto i = 0; i < min(lhs->timestamps.size(), rhs->timestamps.size()); i++)
                 if (lhs->timestamps[i] != rhs->timestamps[i])
                     return lhs->timestamps[i] > rhs->timestamps[i] ? 1 : -1;
 
@@ -90,6 +90,8 @@ class LLNode
       , h_val(h_val)
       , timestep(timestep)
       , num_of_conflicts(num_of_conflicts)
+      , in_openlist(false)
+      , wait_at_goal(false)
       , stage(stage)
     {}
     LLNode(const LLNode& old) { copy(old); }
@@ -135,15 +137,15 @@ class SingleAgentSolver
         return instance.getManhattanDistance(from, to);
     }
 
-    virtual string getName() const = 0;
-    virtual Path findPathSegment(ConstraintTable& constraint_table,
-                                 int start_time,
-                                 int stage,
-                                 int lower_bound) = 0;
-    virtual int getTravelTime(int start,
-                              int end,
-                              const ConstraintTable& constraint_table,
-                              int upper_bound) = 0;
+    /* virtual string getName() const = 0; */
+    /* virtual Path findPathSegment(ConstraintTable& constraint_table, */
+    /*                              int start_time, */
+    /*                              int stage, */
+    /*                              int lower_bound) = 0; */
+    /* virtual int getTravelTime(int start, */
+    /*                           int end, */
+    /*                           const ConstraintTable& constraint_table, */
+    /*                           int upper_bound) = 0; */
 
     list<int> getNextLocations(int curr) const;
     list<int> getNeighbors(int curr) const { return instance.getNeighbors(curr); }
