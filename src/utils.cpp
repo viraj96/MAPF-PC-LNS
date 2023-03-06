@@ -45,6 +45,7 @@ greedy_task_assignment(Instance* instance)
                         task_ready = false;
                         break;
                     }
+                    task_timestep = max(task_complete_timesteps[dependent_task], task_timestep);
                 }
 
             if (task_ready && task_timestep < best_task_to_service_timestep) {
