@@ -1,6 +1,6 @@
 #include "utils.hpp"
 
-void
+int
 greedy_task_assignment(Instance* instance)
 {
     pq q;
@@ -69,9 +69,9 @@ greedy_task_assignment(Instance* instance)
         q.push(make_pair(agent_last_timesteps[agent], agent));
     }
 
-    // Check if tasks have duplicate assignments
-    /* for (int agent = 0; agent < instance->getAgentNum(); agent++) */
-    /*     for (int task = 0; task < instance->getTasksNum(); task++) */
-    /*         if (agent_last_locations[agent] == agent_last_locations[task]) */
-    /*             assert(false); */
+    // compute the sum of costs and return that
+    int sum_of_costs = 0;
+    for (int agent = 0; agent < instance.getAgentNum(); agent++)
+        sum_of_costs += agent_last_timesteps[agent];
+    return sum_of_costs;
 }

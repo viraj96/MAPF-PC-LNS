@@ -65,7 +65,7 @@ main(int argc, char** argv)
         for (int task : dependencies.second)
             PLOGD << "\t Task : " << task << "\n";
     }
-    greedy_task_assignment(&instance);
+    int sum_of_costs = greedy_task_assignment(&instance);
 
     int agentNum = 0;
     for (vector<int> task_assignment : instance.getTaskAssignments()) {

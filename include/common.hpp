@@ -84,3 +84,26 @@ std::ostream&
 operator<<(std::ostream& os, const Path& path);
 bool
 isSamePath(const Path& p1, const Path& p2);
+
+struct IterationStats
+{
+    double runtime;
+    string algorithm;
+    int num_of_agents, num_of_tasks, sum_of_costs, sum_of_costs_lower_bound,
+      num_of_conflicting_pairs;
+    IterationStats(double runtime,
+                   string algorithm,
+                   int num_of_agents,
+                   int num_of_tasks,
+                   int sum_of_costs,
+                   int sum_of_costs_lower_bound = 0,
+                   int num_of_conflicting_pairs = 0)
+      : runtime(runtime)
+      , algorithm(algorithm)
+      , num_of_agents(num_of_agents)
+      , num_of_tasks(num_of_tasks)
+      , sum_of_costs(sum_of_costs)
+      , sum_of_costs_lower_bound(sum_of_costs_lower_bound)
+      , num_of_conflicting_pairs(num_of_conflicting_pairs)
+    {}
+};

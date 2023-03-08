@@ -4,5 +4,5 @@
 #include "common.hpp"
 #include "instance.hpp"
 
-void
+int
 greedy_task_assignment(Instance* instance);

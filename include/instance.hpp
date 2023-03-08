@@ -93,5 +93,6 @@ class Instance
         return degree;
     }
 
+    int getDefaultNumberOfTasks() const { return num_of_tasks; }
     int getDefaultNumberOfAgents() const { return num_of_agents; }
 };
