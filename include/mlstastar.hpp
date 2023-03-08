@@ -2,6 +2,7 @@
 
 #include "astar.hpp"
 #include "common.hpp"
+#include "constrainttable.hpp"
 #include <plog/Log.h>
 
 class MultiLabelAStarNode : public LLNode
@@ -64,16 +65,16 @@ class MultiLabelSpaceTimeAStar : public SingleAgentSolver
                   MultiLabelAStarNode::compare_node>
       allNodes_table;
 
-    Path findShortestPath(ConstraintTable& constraint_table,
-                          const pair<int, int> start_state,
-                          int lower_bound);
-    Path findPath(ConstraintTable& constraint_table,
-                  const pair<int, int> start,
-                  const pair<int, int> goal);
-
     void releaseNodes();
     void updateFocalList();
     inline MultiLabelAStarNode* popNode();
     inline void pushNode(MultiLabelAStarNode* node);
     void updatePath(const LLNode* goal, Path& path);
+
+  public:
+    MultiLabelSpaceTimeAStar(const Instance& instance, int agent)
+      : SingleAgentSolver(instance, agent)
+    {}
+    string getName() const { return "MLAStar"; }
+    Path findPathSegment(ConstraintTable& constraint_table, int start_time, int stage, int lb);
 };

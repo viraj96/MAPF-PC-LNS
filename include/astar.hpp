@@ -1,7 +1,9 @@
 #pragma once
 
 #include "common.hpp"
+#include "constrainttable.hpp"
 #include "instance.hpp"
+#include <plog/Log.h>
 
 class LLNode
 {
@@ -136,18 +138,18 @@ class SingleAgentSolver
     {
         return instance.getManhattanDistance(from, to);
     }
+    inline void setGoalLocations(vector<int> goals) { goal_locations = goals; }
 
-    /* virtual string getName() const = 0; */
-    /* virtual Path findPathSegment(ConstraintTable& constraint_table, */
-    /*                              int start_time, */
-    /*                              int stage, */
-    /*                              int lower_bound) = 0; */
-    /* virtual int getTravelTime(int start, */
-    /*                           int end, */
-    /*                           const ConstraintTable& constraint_table, */
-    /*                           int upper_bound) = 0; */
+    virtual string getName() const = 0;
+    virtual Path findPathSegment(ConstraintTable& constraint_table,
+                                 int start_time,
+                                 int stage,
+                                 int lower_bound) = 0;
+    virtual int getTravelTime(int start,
+                              int end,
+                              const ConstraintTable& constraint_table,
+                              int upper_bound) = 0;
 
-    list<int> getNextLocations(int curr) const;
     list<int> getNeighbors(int curr) const { return instance.getNeighbors(curr); }
 
     SingleAgentSolver(const Instance& instance, int agent)

@@ -29,6 +29,8 @@ LNS::run()
 {
     start_time = Time::now();
     int initial_sum_of_costs = greedy_task_assignment(instance);
+    for (int i = 0; i < instance.getAgentNum(); i++)
+        agents[i].path_planner->setGoalLocations(instance.getAgentTasks(i));
     initial_solution_runtime = ((fsec)(Time::now() - start_time)).count();
     iteration_stats.emplace_back(initial_solution_runtime,
                                  "greedy",

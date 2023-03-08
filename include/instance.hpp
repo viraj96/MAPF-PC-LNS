@@ -37,6 +37,7 @@ class Instance
 
     void printAgents() const;
     void assignTaskToAgent(int agent, int task);
+    vector<int> getAgentTasks(int agent) const;
     list<int> getNeighbors(int curr) const;
     inline bool isObstacle(int loc) const { return map[loc]; }
     inline bool validMove(int curr, int next) const

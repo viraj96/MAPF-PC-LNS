@@ -176,3 +176,37 @@ Instance::getNeighbors(int current) const
             neighbors.emplace_back(next);
     return neighbors;
 }
+
+void
+Instance::printAgents() const
+{
+    for (int i = 0; i < num_of_agents; i++) {
+        pair<int, int> start_loc = getCoordinate(start_locations[i]);
+        PLOGI << "Agent " << i << " : S = (" << start_loc.first << ", " << start_loc.second
+              << ") ;\nGoals : \n";
+        for (int j = 0; j < task_assignments[i].size(); j++) {
+            pair<int, int> goal_loc = getCoordinate(task_assignments[i][j]);
+            PLOGI << "\t" << j << " : (" << goal_loc.first << " , " << goal_loc.second << ")\n";
+        }
+    }
+}
+
+void
+Instance::printMap() const
+{
+    for (int i = 0; i < num_of_rows; i++) {
+        for (int j = 0; j < num_of_cols; j++) {
+            if (map[linearizeCoordinate(i, j)])
+                PLOGI << '@';
+            else
+                PLOGI << '.';
+        }
+        PLOGI << endl;
+    }
+}
+
+vector<int>
+Instance::getAgentTasks(int agent) const
+{
+    return task_assignments[agent];
+}
