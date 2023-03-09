@@ -33,7 +33,7 @@ class LLNode
     {
         int operator()(const LLNode* lhs, const LLNode* rhs) const
         {
-            for (auto i = 0; i < min(lhs->timestamps.size(), rhs->timestamps.size()); i++)
+            for (int i = 0; i < min((int)lhs->timestamps.size(), (int)rhs->timestamps.size()); i++)
                 if (lhs->timestamps[i] != rhs->timestamps[i])
                     return lhs->timestamps[i] > rhs->timestamps[i] ? 1 : -1;
 
@@ -60,7 +60,9 @@ class LLNode
     {
         bool operator()(const LLNode* lhs, const LLNode* rhs) const
         {
-            for (int i = 0; i < min(lhs->secondary_keys.size(), rhs->secondary_keys.size()); i++)
+            for (int i = 0;
+                 i < min((int)lhs->secondary_keys.size(), (int)rhs->secondary_keys.size());
+                 i++)
                 if (lhs->secondary_keys[i] != rhs->secondary_keys[i])
                     return lhs->secondary_keys[i] > rhs->secondary_keys[i];
             int timestamps_comparison = compare_timestamps()(lhs, rhs);
@@ -145,10 +147,10 @@ class SingleAgentSolver
                                  int start_time,
                                  int stage,
                                  int lower_bound) = 0;
-    virtual int getTravelTime(int start,
-                              int end,
-                              const ConstraintTable& constraint_table,
-                              int upper_bound) = 0;
+    /* virtual int getTravelTime(int start, */
+    /*                           int end, */
+    /*                           const ConstraintTable& constraint_table, */
+    /*                           int upper_bound) = 0; */
 
     list<int> getNeighbors(int curr) const { return instance.getNeighbors(curr); }
 
@@ -159,4 +161,5 @@ class SingleAgentSolver
     {
         compute_heuristics();
     }
+    virtual ~SingleAgentSolver() = default;
 };

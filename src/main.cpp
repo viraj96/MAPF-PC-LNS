@@ -66,6 +66,7 @@ main(int argc, char** argv)
             PLOGD << "\t Task : " << task << "\n";
     }
     int sum_of_costs = greedy_task_assignment(&instance);
+    PLOGI << "Sum of costs of the greedy task assignment = " << sum_of_costs << endl;
 
     int agentNum = 0;
     for (vector<int> task_assignment : instance.getTaskAssignments()) {

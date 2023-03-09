@@ -1,11 +1,11 @@
 #include "lns.hpp"
 #include "utils.hpp"
 
-LNS::LNS(const Instance& instance, double time_limit, int neighbor_size, int num_of_iterations)
-  : instance(instance)
-  , time_limit(time_limit)
+LNS::LNS(int num_of_iterations, Instance& instance, int neighbor_size, double time_limit)
+  : num_of_iterations(num_of_iterations)
+  , instance(instance)
   , neighbor_size(neighbor_size)
-  , num_of_iterations(num_of_iterations)
+  , time_limit(time_limit)
 {
     start_time = Time::now();
 
@@ -28,7 +28,7 @@ bool
 LNS::run()
 {
     start_time = Time::now();
-    int initial_sum_of_costs = greedy_task_assignment(instance);
+    int initial_sum_of_costs = greedy_task_assignment(&instance);
     for (int i = 0; i < instance.getAgentNum(); i++)
         agents[i].path_planner->setGoalLocations(instance.getAgentTasks(i));
     initial_solution_runtime = ((fsec)(Time::now() - start_time)).count();
@@ -42,10 +42,13 @@ LNS::run()
     PLOGD << "Initial solution cost = " << initial_sum_of_costs
           << ", Runtime = " << initial_solution_runtime << endl;
 
-    while (runtime < time_limit && iteration_stats.size() <= num_of_iterations) {
+    while (runtime < time_limit && (int)iteration_stats.size() <= num_of_iterations) {
         runtime = ((fsec)(Time::now() - start_time)).count();
-        bool valid = validateSolution();
+        /* bool valid = validateSolution(); */
     }
+
+    // change this later
+    return true;
 }
 
 bool
@@ -53,4 +56,7 @@ LNS::validateSolution() const
 {
     /* int sum = 0; */
     /* for (const Agent& a : agents) */
+
+    // change this later
+    return true;
 }

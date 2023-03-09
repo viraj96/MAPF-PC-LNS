@@ -32,9 +32,9 @@ class LNS
 
   protected:
     bool ALNS = false;
+    Instance& instance;
     Neighbor neighbor;
     vector<Agent> agents;
-    const Instance& instance;
     vector<double> destroy_weights;
     int neighbor_size, selected_neighbor;
     high_resolution_clock::time_point start_time;
@@ -46,7 +46,7 @@ class LNS
     int num_of_failures = 0, sum_of_costs = 0;
     double runtime = 0, average_group_size = -1;
 
-    LNS(const Instance& instance, double time_limit, int neighbor_size, int num_of_iterations);
+    LNS(int num_of_iterations, Instance& instance, int neighbor_size, double time_limit);
     bool validateSolution() const;
     bool run();
 };

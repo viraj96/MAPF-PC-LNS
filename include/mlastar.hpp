@@ -30,6 +30,8 @@ class MultiLabelAStarNode : public LLNode
       : LLNode(parent, location, g_val, h_val, timestep, num_of_conflicts, stage)
     {}
 
+    ~MultiLabelAStarNode() {}
+
     struct NodeHasher
     {
         size_t operator()(const MultiLabelAStarNode* node) const

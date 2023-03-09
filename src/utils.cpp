@@ -9,7 +9,8 @@ greedy_task_assignment(Instance* instance)
     vector<int> task_complete_timesteps(instance->getTasksNum(), -1);
 
     // We first compute the heuristic value for all the tasks irrespective of the agents
-    unique_ptr<SingleAgentSolver> search_engine = make_unique<SingleAgentSolver>((*instance), 0);
+    unique_ptr<SingleAgentSolver> search_engine =
+      make_unique<MultiLabelSpaceTimeAStar>((*instance), 0);
 
     for (int agent = 0; agent < instance->getAgentNum(); agent++)
         q.push(make_pair(0, agent)); // timestep, agent
@@ -71,7 +72,7 @@ greedy_task_assignment(Instance* instance)
 
     // compute the sum of costs and return that
     int sum_of_costs = 0;
-    for (int agent = 0; agent < instance.getAgentNum(); agent++)
+    for (int agent = 0; agent < instance->getAgentNum(); agent++)
         sum_of_costs += agent_last_timesteps[agent];
     return sum_of_costs;
 }
