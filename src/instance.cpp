@@ -210,3 +210,13 @@ Instance::getAgentTasks(int agent) const
 {
     return task_assignments[agent];
 }
+
+int
+Instance::getAgentWithTask(int task) const
+{
+    for (int i = 0; i < num_of_agents; i++)
+        for (int j = 0; j < (int)task_assignments[i].size(); j++)
+            if (j == task)
+                return i;
+    return -1;
+}

@@ -76,3 +76,62 @@ greedy_task_assignment(Instance* instance)
         sum_of_costs += agent_last_timesteps[agent];
     return sum_of_costs;
 }
+
+bool
+topological_sort(LNS* lns_instance, vector<int> planning_order)
+{
+    planning_order.clear();
+    vector<bool> closed(lns_instance->getInstance().getTasksNum(), false);
+    vector<bool> expanded(lns_instance->getInstance().getTasksNum(), false);
+
+    vector<vector<int>> successors;
+    for (pair<int, int> precedence_constraint : lns_instance->getPrecedenceConstraints())
+        successors[precedence_constraint.first].push_back(precedence_constraint.second);
+
+    for (int task = 0; task < lns_instance->getInstance().getTasksNum(); task++) {
+        if (closed[task])
+            continue;
+
+        stack<int> dfs_stack;
+        dfs_stack.push(task);
+
+        while (!dfs_stack.empty()) {
+
+            int current_task = dfs_stack.top();
+            dfs_stack.pop();
+            if (closed[current_task])
+                continue;
+            if (expanded[current_task]) {
+                closed[current_task] = true;
+                planning_order.push_back(current_task);
+            } else {
+                expanded[current_task] = true;
+                dfs_stack.push(current_task);
+                for (int dependent_task : successors[current_task]) {
+                    if (closed[dependent_task])
+                        continue;
+                    if (expanded[dependent_task]) {
+                        PLOGE << "Detected a cycle while running topological sort\n";
+                        return false;
+                    }
+                    dfs_stack.push(dependent_task);
+                }
+            }
+        }
+    }
+
+    reverse(planning_order.begin(), planning_order.end());
+
+    unordered_set<int> tasks_order;
+    for (int task : planning_order) {
+        for (int dependent_task : successors[task])
+            if (tasks_order.find(dependent_task) != tasks_order.end()) {
+                PLOGE << "The topological sort violated a precedence constraint\n";
+                return false;
+            }
+        tasks_order.insert(task);
+    }
+
+    assert((int)planning_order.size() == lns_instance->getInstance().getTasksNum());
+    return true;
+}

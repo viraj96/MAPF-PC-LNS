@@ -36,6 +36,7 @@ class Instance
              int num_of_tasks = 0);
 
     void printAgents() const;
+    int getAgentWithTask(int task) const;
     void assignTaskToAgent(int agent, int task);
     vector<int> getAgentTasks(int agent) const;
     list<int> getNeighbors(int curr) const;
