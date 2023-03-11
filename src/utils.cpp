@@ -78,17 +78,17 @@ greedy_task_assignment(Instance* instance)
 }
 
 bool
-topological_sort(LNS* lns_instance, vector<int> planning_order)
+topological_sort(Instance instance, vector<int>& planning_order)
 {
     planning_order.clear();
-    vector<bool> closed(lns_instance->getInstance().getTasksNum(), false);
-    vector<bool> expanded(lns_instance->getInstance().getTasksNum(), false);
+    vector<bool> closed(instance.getTasksNum(), false);
+    vector<bool> expanded(instance.getTasksNum(), false);
 
     vector<vector<int>> successors;
-    for (pair<int, int> precedence_constraint : lns_instance->getPrecedenceConstraints())
+    for (pair<int, int> precedence_constraint : instance.precedence_constraints)
         successors[precedence_constraint.first].push_back(precedence_constraint.second);
 
-    for (int task = 0; task < lns_instance->getInstance().getTasksNum(); task++) {
+    for (int task = 0; task < instance.getTasksNum(); task++) {
         if (closed[task])
             continue;
 
@@ -132,6 +132,6 @@ topological_sort(LNS* lns_instance, vector<int> planning_order)
         tasks_order.insert(task);
     }
 
-    assert((int)planning_order.size() == lns_instance->getInstance().getTasksNum());
+    assert((int)planning_order.size() == instance.getTasksNum());
     return true;
 }

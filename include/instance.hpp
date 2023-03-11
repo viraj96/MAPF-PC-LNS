@@ -25,9 +25,15 @@ class Instance
     friend class SingleAgentSolver;
 
   public:
-    int num_of_cols;
-    int num_of_rows;
-    int map_size;
+    int map_size, num_of_cols, num_of_rows;
+
+    vector<int> id_base;
+    vector<pair<int, int>> id_to_agent_task, precedence_constraints;
+    int agent_task_to_id(pair<int, int> agent_task) const
+    {
+        int agent = agent_task.first, task = agent_task.second;
+        return id_base[agent] + task;
+    }
 
     Instance() {}
     Instance(const string& map_fname,

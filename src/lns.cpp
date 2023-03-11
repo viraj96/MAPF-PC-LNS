@@ -29,7 +29,7 @@ LNS::run()
 {
     start_time = Time::now();
     // assign tasks
-    id_base.resize(instance.getAgentNum(), 0);
+    instance.id_base.resize(instance.getAgentNum(), 0);
     int initial_sum_of_costs = greedy_task_assignment(&instance);
     for (int i = 0; i < instance.getAgentNum(); i++) {
         if ((int)instance.getAgentTasks(i).size() == 0) {
@@ -38,27 +38,29 @@ LNS::run()
         } else
             agents[i].path_planner->setGoalLocations(instance.getAgentTasks(i));
         for (int j = 0; j < (int)agents[i].path_planner->goal_locations.size(); j++)
-            id_to_agent_task.push_back(make_pair(i, j));
+            instance.id_to_agent_task.push_back(make_pair(i, j));
         if (i != 0)
-            id_base[i] = id_base[i - 1] + (int)agents[i - 1].path_planner->goal_locations.size();
+            instance.id_base[i] =
+              instance.id_base[i - 1] + (int)agents[i - 1].path_planner->goal_locations.size();
     }
     for (int i = 0; i < instance.getAgentNum(); i++)
         for (int j = 1; j < (int)agents[i].path_planner->goal_locations.size(); j++)
-            precedence_constraints.push_back(
-              make_pair(agent_task_to_id(make_pair(i, j - 1)), agent_task_to_id(make_pair(i, j))));
+            instance.precedence_constraints.push_back(
+              make_pair(instance.agent_task_to_id(make_pair(i, j - 1)),
+                        instance.agent_task_to_id(make_pair(i, j))));
     for (int i = 0; i < (int)instance.getTaskDependencies().size(); i++) {
         int task_a = i, agent_a = instance.getAgentWithTask(i);
         for (int j = 0; j < (int)instance.getTaskDependencies()[task_a].size(); j++) {
             int task_b = j, agent_b = instance.getAgentWithTask(j);
-            precedence_constraints.push_back(
-              make_pair(agent_task_to_id(make_pair(agent_a, task_a)),
-                        agent_task_to_id(make_pair(agent_b, task_b))));
+            instance.precedence_constraints.push_back(
+              make_pair(instance.agent_task_to_id(make_pair(agent_a, task_a)),
+                        instance.agent_task_to_id(make_pair(agent_b, task_b))));
         }
     }
 
     // find paths based on the task assignments
     vector<int> planning_order;
-    bool success = topological_sort(this, planning_order);
+    bool success = topological_sort(instance, planning_order);
     if (!success) {
         PLOGE << "Topological sorting failed\n";
         return success;
@@ -66,7 +68,7 @@ LNS::run()
 
     vector<Path> initial_paths;
     for (int id : planning_order) {
-        pair<int, int> agent_task = id_to_agent_task[id];
+        pair<int, int> agent_task = instance.id_to_agent_task[id];
         int agent = agent_task.first, task = agent_task.second, start_time = 0;
         if (task != 0) {
             assert(!initial_paths[agent_task_to_id(make_pair(agent, task - 1))].empty());

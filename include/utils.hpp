@@ -9,4 +9,4 @@ int
 greedy_task_assignment(Instance* instance);
 
 bool
-topological_sort(LNS* lns_instance, vector<int>& planning_order);
+topological_sort(Instance instance, vector<int>& planning_order);
