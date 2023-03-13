@@ -9,6 +9,7 @@
 #include <iostream> // std::cout, std::fixed
 #include <list>
 #include <set>
+#include <stack>
 #include <tuple>
 #include <vector>
 

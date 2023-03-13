@@ -124,20 +124,13 @@ LNS::run()
     PLOGD << "Initial solution cost = " << initial_sum_of_costs
           << ", Runtime = " << initial_solution_runtime << endl;
 
+    for (int i = 0; i < instance.getAgentNum(); i++)
+        cout << agents[i].paths.size() << endl;
+
     while (runtime < time_limit && (int)iteration_stats.size() <= num_of_iterations) {
         runtime = ((fsec)(Time::now() - start_time)).count();
         /* bool valid = validateSolution(); */
     }
-
-    // change this later
-    return true;
-}
-
-bool
-LNS::validateSolution() const
-{
-    /* int sum = 0; */
-    /* for (const Agent& a : agents) */
 
     // change this later
     return true;
@@ -186,3 +179,39 @@ LNS::build_constraint_table(ConstraintTable& constraint_table, int agent, int ta
     constraint_table.latest_timestep =
       max(constraint_table.latest_timestep, constraint_table.length_min);
 }
+
+/* bool */
+/* LNS::validateSolution() const */
+/* { */
+/*     vector<pair<int, int>> precedence_constraints = instance.getPrecedenceConstraints(); */
+/*     for (pair<int, int> precedence_constraint : precedence_constraints) { */
+/*         pair<int, int> agent_task_a = instance.id_to_agent_task[precedence_constraint.first]; */
+/*         pair<int, int> agent_task_b = instance.id_to_agent_task[precedence_constraint.second]; */
+/*         int agent_a = agent_task_a.first, task_a = agent_task_a.second; */
+/*         int agent_b = agent_task_b.first, task_b = agent_task_b.second; */
+/*         if (agents[agent_a].paths->timestamps[task_a] >= */
+/*             agents[agent_b].paths``->timestamps[task_b]) { */
+/*             PLOGE << "Temporal conflict between " << agent_a << " doing local task " << task_a */
+/*                   << " and agent " << agent_b << " doing local task " << task_b << endl; */
+/*             return false; */
+/*         } */
+/*     } */
+/*     for (int agent_a = 0; agent_a < instance.getAgentNum(); agent_a++) { */
+/*         for (int agent_b = 0; agent_b < instance.getAgentNum(); agent_b++) { */
+/*             if (agent_a == agent_b) */
+/*                 continue; */
+/*         } */
+/*     } */
+/*     for (int i = 0; i < instance.getTasksNum(); i++) { */
+/*         int agent_b = instance.getAgentWithTask(i); */
+/*         int task_b = instance.getLocalTaskIndex(agent_b, i); */
+/*         vector<int> previous_tasks = instance.getTaskDependencies()[i]; */
+/*         for (int j = 0; j < (int)previous_tasks.size(); j++) { */
+/*             int agent_a = instance.getAgentWithTask(previous_tasks[j]); */
+/*             int task_a = instance.getLocalTaskIndex(agent_a, previous_tasks[j]); */
+/*             instance.insertPrecedenceConstraint( */
+/*               instance.agent_task_to_id(make_pair(agent_a, task_a)), */
+/*               instance.agent_task_to_id(make_pair(agent_b, task_b))); */
+/*         } */
+/*     } */
+/* } */
