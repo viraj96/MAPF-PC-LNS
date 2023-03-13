@@ -29,8 +29,9 @@ class ConstraintTable
     bool constrained(size_t current_location, size_t next_location, int next_timestep) const;
 
     void copy(const ConstraintTable& old);
-    void insert2CT(size_t loc, int t_min, int t_max);
+    void insert2CT(size_t location, int t_min, int t_max);
     void insert2CT(size_t from, size_t to, int t_min, int t_max);
 
+    void addPath(const Path& path, bool wait_at_goal);
     unordered_map<size_t, size_t> getLandmarks() const { return landmarks; }
 };

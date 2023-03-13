@@ -9,7 +9,7 @@ struct Agent
 {
 
     int id;
-    Path path;
+    vector<Path*> paths;
     SingleAgentSolver* path_planner = nullptr;
 
     Agent(const Instance& instance, int id)
@@ -41,25 +41,15 @@ class LNS
     high_resolution_clock::time_point start_time;
     double time_limit, replan_time_limit, decay_factor = -1, reaction_factor = -1,
                                           preprocessing_time = 0, initial_solution_runtime = 0;
-    vector<int> id_base;
-    vector<pair<int, int>> id_to_agent_task, precedence_constraints;
-    int agent_task_to_id(pair<int, int> agent_task) const
-    {
-        int agent = agent_task.first, task = agent_task.second;
-        return id_base[agent] + task;
-    }
 
   public:
+    vector<Path> initial_paths;
     list<IterationStats> iteration_stats;
     int num_of_failures = 0, sum_of_costs = 0;
     double runtime = 0, average_group_size = -1;
 
     LNS(int num_of_iterations, Instance& instance, int neighbor_size, double time_limit);
     inline Instance getInstance() { return instance; }
-    inline vector<pair<int, int>> getPrecedenceConstraints() const
-    {
-        return precedence_constraints;
-    }
     bool validateSolution() const;
     bool run();
     void build_constraint_table(ConstraintTable& constraint_table, int agent, int task);

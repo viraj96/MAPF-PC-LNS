@@ -1,6 +1,6 @@
 #include "utils.hpp"
 
-int
+void
 greedy_task_assignment(Instance* instance)
 {
     pq q;
@@ -69,26 +69,21 @@ greedy_task_assignment(Instance* instance)
 
         q.push(make_pair(agent_last_timesteps[agent], agent));
     }
-
-    // compute the sum of costs and return that
-    int sum_of_costs = 0;
-    for (int agent = 0; agent < instance->getAgentNum(); agent++)
-        sum_of_costs += agent_last_timesteps[agent];
-    return sum_of_costs;
 }
 
 bool
-topological_sort(Instance instance, vector<int>& planning_order)
+topological_sort(Instance* instance, vector<int>& planning_order)
 {
     planning_order.clear();
-    vector<bool> closed(instance.getTasksNum(), false);
-    vector<bool> expanded(instance.getTasksNum(), false);
+    vector<bool> closed(instance->getTasksNum(), false);
+    vector<bool> expanded(instance->getTasksNum(), false);
 
     vector<vector<int>> successors;
-    for (pair<int, int> precedence_constraint : instance.precedence_constraints)
+    successors.resize(instance->getTasksNum());
+    for (pair<int, int> precedence_constraint : instance->getPrecedenceConstraints())
         successors[precedence_constraint.first].push_back(precedence_constraint.second);
 
-    for (int task = 0; task < instance.getTasksNum(); task++) {
+    for (int task = 0; task < instance->getTasksNum(); task++) {
         if (closed[task])
             continue;
 
@@ -132,6 +127,6 @@ topological_sort(Instance instance, vector<int>& planning_order)
         tasks_order.insert(task);
     }
 
-    assert((int)planning_order.size() == instance.getTasksNum());
+    assert((int)planning_order.size() == instance->getTasksNum());
     return true;
 }

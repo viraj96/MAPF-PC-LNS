@@ -20,10 +20,12 @@ SingleAgentSolver::compute_heuristics()
         };
     };
 
+    heuristic.clear();
+    heuristic_landmarks.clear();
     heuristic.resize(goal_locations.size());
-    heuristic_landmarks.resize(goal_locations.size());
+    heuristic_landmarks.resize(goal_locations.size(), 0);
 
-    for (size_t i = 0; i < goal_locations.size(); i++) {
+    for (int i = 0; i < (int)goal_locations.size(); i++) {
         heuristic[i].resize(instance.map_size, MAX_TIMESTEP);
         pairing_heap<Node, compare<Node::compare_node>> heap;
 
@@ -45,6 +47,6 @@ SingleAgentSolver::compute_heuristics()
         }
     }
 
-    for (int i = goal_locations.size() - 2; i >= 0; i--)
+    for (int i = (int)goal_locations.size() - 2; i >= 0; i--)
         heuristic_landmarks[i] = heuristic_landmarks[i + 1] + heuristic[i + 1][goal_locations[i]];
 }

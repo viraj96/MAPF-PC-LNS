@@ -97,9 +97,7 @@ MultiLabelSpaceTimeAStar::findPathSegment(ConstraintTable& constraint_table,
         updateFocalList();
         MultiLabelAStarNode* current = popNode();
 
-        if (current->location == goal_locations.back() &&
-            current->stage == goal_locations.size() - 1 && !current->wait_at_goal &&
-            current->timestep >= holding_time) {
+        if (current->location == goal_locations[stage] && current->timestep >= holding_time) {
             updatePath(current, path);
             break;
         }

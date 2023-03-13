@@ -29,6 +29,8 @@ main(int argc, char** argv)
       "taskNum,l", po::value<int>()->default_value(0), "Number of tasks to plan for");
     desc.add_options()(
       "neighborSize,n", po::value<int>()->default_value(8), "Size of the neighborhood");
+    desc.add_options()(
+      "maxIterations,i", po::value<int>()->default_value(0), "Maximum number of iterations");
     desc.add_options()("severity,d", po::value<int>()->default_value(0), "Debugging level");
 
     po::variables_map vm;
@@ -65,14 +67,12 @@ main(int argc, char** argv)
         for (int task : dependencies.second)
             PLOGD << "\t Task : " << task << "\n";
     }
-    int sum_of_costs = greedy_task_assignment(&instance);
-    PLOGI << "Sum of costs of the greedy task assignment = " << sum_of_costs << endl;
+    /* greedy_task_assignment(&instance); */
 
-    int agentNum = 0;
-    for (vector<int> task_assignment : instance.getTaskAssignments()) {
-        PLOGI << "Task assignments for " << agentNum << ":\n";
-        for (int task : task_assignment)
-            PLOGI << "\t Task " << task << "\n";
-        agentNum++;
-    }
+    LNS lns_instance = LNS(vm["maxIterations"].as<int>(),
+                           instance,
+                           vm["neighborSize"].as<int>(),
+                           vm["cutoffTime"].as<double>());
+    bool success = lns_instance.run();
+    PLOGI << "Success = " << success << endl;
 }

@@ -116,9 +116,6 @@ class LLNode
 
 class SingleAgentSolver
 {
-  protected:
-    void compute_heuristics();
-
   public:
     uint64_t num_expanded = 0;
     uint64_t num_generated = 0;
@@ -132,6 +129,8 @@ class SingleAgentSolver
     vector<int> heuristic_landmarks;
 
     vector<vector<int>> heuristic;
+
+    void compute_heuristics();
     int get_heuristic(int stage, int location) const
     {
         return heuristic[stage][location] + heuristic_landmarks[stage];

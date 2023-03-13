@@ -216,7 +216,7 @@ Instance::getAgentWithTask(int task) const
 {
     for (int i = 0; i < num_of_agents; i++)
         for (int j = 0; j < (int)task_assignments[i].size(); j++)
-            if (j == task)
+            if (task_assignments[i][j] == task)
                 return i;
     return -1;
 }

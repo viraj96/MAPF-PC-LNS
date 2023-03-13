@@ -41,3 +41,37 @@ ConstraintTable::constrained(size_t current_location, size_t next_location, int 
 {
     return constrained(getEdgeIndex(current_location, next_location), next_timestep);
 }
+
+void
+ConstraintTable::insert2CT(size_t from, size_t to, int t_min, int t_max)
+{
+    insert2CT(getEdgeIndex(from, to), t_min, t_max);
+}
+
+void
+ConstraintTable::insert2CT(size_t location, int t_min, int t_max)
+{
+    assert(location >= 0);
+    constraint_table[location].emplace_back(t_min, t_max);
+    if (t_max < MAX_TIMESTEP && t_max > latest_timestep)
+        latest_timestep = t_max;
+    else if (t_max == MAX_TIMESTEP && t_min > latest_timestep)
+        latest_timestep = t_min;
+}
+
+void
+ConstraintTable::addPath(const Path& path, bool wait_at_goal)
+{
+    int offset = path.begin_time;
+    for (int i = 0; i < (int)path.size() - 1; i++) {
+        int timestep = i + offset;
+        insert2CT(path[i].location, timestep, timestep + 1);
+        insert2CT(path[i + 1].location, path[i].location, timestep + 1, timestep + 2);
+    }
+    int i = (int)path.size() - 1;
+    int timestep = i + offset;
+    if (wait_at_goal)
+        insert2CT(path[i].location, timestep, MAX_TIMESTEP);
+    else
+        insert2CT(path[i].location, timestep, timestep + 1);
+}

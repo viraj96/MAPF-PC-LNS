@@ -5,8 +5,8 @@
 #include "lns.hpp"
 #include "mlastar.hpp"
 
-int
+void
 greedy_task_assignment(Instance* instance);
 
 bool
-topological_sort(Instance instance, vector<int>& planning_order);
+topological_sort(Instance* instance, vector<int>& planning_order);

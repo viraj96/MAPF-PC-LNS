@@ -11,9 +11,12 @@ class Instance
     string agent_task_fname;
 
     int num_of_agents, num_of_tasks;
-    vector<vector<int>> task_assignments;
     vector<int> task_locations, start_locations;
     unordered_map<int, vector<int>> task_dependencies;
+
+    // these values needs to change after goal reasssignments
+    vector<vector<int>> task_assignments;
+    vector<pair<int, int>> precedence_constraints;
 
     bool loadMap();
     bool loadAgentsAndTasks();
@@ -27,8 +30,9 @@ class Instance
   public:
     int map_size, num_of_cols, num_of_rows;
 
+    // these values need to be updated after goal reassignments
     vector<int> id_base;
-    vector<pair<int, int>> id_to_agent_task, precedence_constraints;
+    vector<pair<int, int>> id_to_agent_task;
     int agent_task_to_id(pair<int, int> agent_task) const
     {
         int agent = agent_task.first, task = agent_task.second;
@@ -45,6 +49,29 @@ class Instance
     int getAgentWithTask(int task) const;
     void assignTaskToAgent(int agent, int task);
     vector<int> getAgentTasks(int agent) const;
+    vector<int> getTaskLocations(vector<int> tasks) const
+    {
+        vector<int> task_locs(tasks.size(), 0);
+        for (int i = 0; i < (int)tasks.size(); i++)
+            task_locs[i] = task_locations[tasks[i]];
+        return task_locs;
+    }
+    int getLocalTaskIndex(int agent, int task) const
+    {
+        for (int i = 0; i < (int)task_assignments[agent].size(); i++) {
+            if (task_assignments[agent][i] == task)
+                return i;
+        }
+        return -1;
+    }
+    inline vector<pair<int, int>> getPrecedenceConstraints() const
+    {
+        return precedence_constraints;
+    }
+    inline void insertPrecedenceConstraint(int task_id_a, int task_id_b)
+    {
+        precedence_constraints.push_back(make_pair(task_id_a, task_id_b));
+    }
     list<int> getNeighbors(int curr) const;
     inline bool isObstacle(int loc) const { return map[loc]; }
     inline bool validMove(int curr, int next) const
