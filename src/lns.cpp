@@ -24,6 +24,22 @@ LNS::LNS(int num_of_iterations, Instance& instance, int neighbor_size, double ti
     PLOGD << "Pre-processing time = " << preprocessing_time << " seconds.\n";
 }
 
+void
+LNS::joinPaths()
+{
+    for (int i = 0; i < instance.getAgentNum(); i++) {
+        for (int j = 0; j < (int)agents[i].path_planner->goal_locations.size(); j++) {
+            /* int id = instance.agent_task_to_id(make_pair(i, j)); */
+            if (j == 0)
+                agents[i].path.path.push_back(agents[i].task_paths[j]->front());
+            assert((int)agents[i].path.size() - 1 == agents[i].task_paths[j]->begin_time);
+            for (int k = 1; k < (int)agents[i].task_paths[j]->size(); k++)
+                agents[i].path.path.push_back(agents[i].task_paths[j]->at(k));
+            agents[i].path.timestamps.push_back(agents[i].path.size() - 1);
+        }
+    }
+}
+
 bool
 LNS::run()
 {
@@ -35,12 +51,12 @@ LNS::run()
         if ((int)instance.getAgentTasks(i).size() == 0) {
             vector<int> goal = { instance.getStartLocations()[i] };
             agents[i].path_planner->setGoalLocations(goal);
-            agents[i].paths.resize(1, nullptr);
+            agents[i].task_paths.resize(1, nullptr);
         } else {
             vector<int> task_assignments = instance.getAgentTasks(i);
             vector<int> task_locations = instance.getTaskLocations(task_assignments);
             agents[i].path_planner->setGoalLocations(task_locations);
-            agents[i].paths.resize((int)task_locations.size(), nullptr);
+            agents[i].task_paths.resize((int)task_locations.size(), nullptr);
         }
         agents[i].path_planner->compute_heuristics();
         for (int j = 0; j < (int)agents[i].path_planner->goal_locations.size(); j++)
@@ -95,23 +111,22 @@ LNS::run()
             return false;
         }
 
-        agents[agent].paths[task] = &initial_paths[id];
+        agents[agent].task_paths[task] = &initial_paths[id];
     }
+
+    joinPaths();
 
     int initial_sum_of_costs = 0;
     for (int i = 0; i < (int)agents.size(); i++) {
-        initial_sum_of_costs += agents[i].paths[(int)agents[i].paths.size() - 1]->end_time();
+        initial_sum_of_costs += agents[i].path.end_time();
     }
 
     PLOGI << "Printing paths to verify initial solution correctness\n";
-    for (int i = 0; i < instance.getTasksNum(); i++) {
-        int agent = instance.getAgentWithTask(i), task = instance.getLocalTaskIndex(agent, i);
-        if (task != -1) {
-            PLOGI << "Agent " << agent << " doing task " << i << "\n";
-            for (int j = 0; j < (int)agents[agent].paths[task]->path.size(); j++)
-                PLOGI << "\t " << agents[agent].paths[task]->path[j].location << " -> ";
-            PLOGI << "\n\n";
-        }
+    for (int i = 0; i < instance.getAgentNum(); i++) {
+        PLOGI << "Agent " << i << "'s path: ";
+        for (int j = 0; j < (int)agents[i].path.size() - 1; j++)
+            PLOGI << agents[i].path.at(j).location << " ";
+        PLOGI << endl << endl;
     }
     initial_solution_runtime = ((fsec)(Time::now() - start_time)).count();
     iteration_stats.emplace_back(initial_solution_runtime,
@@ -124,12 +139,19 @@ LNS::run()
     PLOGD << "Initial solution cost = " << initial_sum_of_costs
           << ", Runtime = " << initial_solution_runtime << endl;
 
-    for (int i = 0; i < instance.getAgentNum(); i++)
-        cout << agents[i].paths.size() << endl;
+    bool valid = validateSolution();
+    if (!valid) {
+        PLOGE << "The initial solution was not valid!\n";
+        return false;
+    }
 
     while (runtime < time_limit && (int)iteration_stats.size() <= num_of_iterations) {
         runtime = ((fsec)(Time::now() - start_time)).count();
-        /* bool valid = validateSolution(); */
+        bool valid = validateSolution();
+        if (!valid) {
+            PLOGE << "The initial solution was not valid!\n";
+            return false;
+        }
     }
 
     // change this later
@@ -166,52 +188,91 @@ LNS::build_constraint_table(ConstraintTable& constraint_table, int agent, int ta
         pair<int, int> agent_task = instance.id_to_agent_task[id];
         int agent = agent_task.first, task = agent_task.second;
         bool wait_at_goal = task == (int)agents[agent].path_planner->goal_locations.size() - 1;
-        constraint_table.addPath(*agents[agent].paths[task], wait_at_goal);
+        constraint_table.addPath(*agents[agent].task_paths[task], wait_at_goal);
     }
 
     for (int agent_task_ancestor : ancestors[agent_task_id]) {
         pair<int, int> agent_task = instance.id_to_agent_task[agent_task_ancestor];
         int agent = agent_task.first, task = agent_task.second;
-        assert(!agents[agent].paths[task]->empty());
+        assert(!agents[agent].task_paths[task]->empty());
         constraint_table.length_min =
-          max(constraint_table.length_min, agents[agent].paths[task]->end_time() + 1);
+          max(constraint_table.length_min, agents[agent].task_paths[task]->end_time() + 1);
     }
     constraint_table.latest_timestep =
       max(constraint_table.latest_timestep, constraint_table.length_min);
 }
 
-/* bool */
-/* LNS::validateSolution() const */
-/* { */
-/*     vector<pair<int, int>> precedence_constraints = instance.getPrecedenceConstraints(); */
-/*     for (pair<int, int> precedence_constraint : precedence_constraints) { */
-/*         pair<int, int> agent_task_a = instance.id_to_agent_task[precedence_constraint.first]; */
-/*         pair<int, int> agent_task_b = instance.id_to_agent_task[precedence_constraint.second]; */
-/*         int agent_a = agent_task_a.first, task_a = agent_task_a.second; */
-/*         int agent_b = agent_task_b.first, task_b = agent_task_b.second; */
-/*         if (agents[agent_a].paths->timestamps[task_a] >= */
-/*             agents[agent_b].paths``->timestamps[task_b]) { */
-/*             PLOGE << "Temporal conflict between " << agent_a << " doing local task " << task_a */
-/*                   << " and agent " << agent_b << " doing local task " << task_b << endl; */
-/*             return false; */
-/*         } */
-/*     } */
-/*     for (int agent_a = 0; agent_a < instance.getAgentNum(); agent_a++) { */
-/*         for (int agent_b = 0; agent_b < instance.getAgentNum(); agent_b++) { */
-/*             if (agent_a == agent_b) */
-/*                 continue; */
-/*         } */
-/*     } */
-/*     for (int i = 0; i < instance.getTasksNum(); i++) { */
-/*         int agent_b = instance.getAgentWithTask(i); */
-/*         int task_b = instance.getLocalTaskIndex(agent_b, i); */
-/*         vector<int> previous_tasks = instance.getTaskDependencies()[i]; */
-/*         for (int j = 0; j < (int)previous_tasks.size(); j++) { */
-/*             int agent_a = instance.getAgentWithTask(previous_tasks[j]); */
-/*             int task_a = instance.getLocalTaskIndex(agent_a, previous_tasks[j]); */
-/*             instance.insertPrecedenceConstraint( */
-/*               instance.agent_task_to_id(make_pair(agent_a, task_a)), */
-/*               instance.agent_task_to_id(make_pair(agent_b, task_b))); */
-/*         } */
-/*     } */
-/* } */
+bool
+LNS::validateSolution()
+{
+
+    // Check that the precedence constraints are not violated
+    vector<pair<int, int>> precedence_constraints = instance.getPrecedenceConstraints();
+    for (pair<int, int> precedence_constraint : precedence_constraints) {
+        pair<int, int> agent_task_a = instance.id_to_agent_task[precedence_constraint.first];
+        pair<int, int> agent_task_b = instance.id_to_agent_task[precedence_constraint.second];
+        int agent_a = agent_task_a.first, task_a = agent_task_a.second;
+        int agent_b = agent_task_b.first, task_b = agent_task_b.second;
+        if (agents[agent_a].path.timestamps[task_a] >= agents[agent_b].path.timestamps[task_b]) {
+            PLOGE << "Temporal conflict between " << agent_a << " doing local task " << task_a
+                  << " and agent " << agent_b << " doing local task " << task_b << endl;
+            return false;
+        }
+    }
+
+    for (int agent_i = 0; agent_i < instance.getAgentNum(); agent_i++)
+        for (int agent_j = 0; agent_j < instance.getAgentNum(); agent_j++) {
+            if (agent_i == agent_j)
+                continue;
+            size_t min_path_length = agents[agent_i].path.size() < agents[agent_j].path.size()
+                                       ? agents[agent_i].path.size()
+                                       : agents[agent_j].path.size();
+            for (int timestep = 0; timestep < (int)min_path_length; timestep++) {
+                int location_agent_i = agents[agent_i].path.at(timestep).location;
+                int location_agent_j = agents[agent_j].path.at(timestep).location;
+
+                // Check that any two agents are not at the same location at the same timestep
+                if (location_agent_i == location_agent_j) {
+                    PLOGE << "Agents " << agent_i << " and " << agent_j
+                          << " collide with each other at " << location_agent_i << " at timestep "
+                          << timestep << endl;
+                    return false;
+                }
+                // Check that any two agents are not following the same edge in the opposite
+                // direction at the same timestep
+                else if (timestep < (int)min_path_length - 1 &&
+                         location_agent_i == agents[agent_j].path.at(timestep + 1).location &&
+                         location_agent_j == agents[agent_i].path.at(timestep + 1).location) {
+                    PLOGE << "Agents " << agent_i << " and " << agent_j
+                          << " collide with each other at (" << location_agent_i << " --> "
+                          << location_agent_j << ") at timestep " << timestep << endl;
+                    return false;
+                }
+            }
+
+            // Check that any two agents are not at the same location at the same timestep where one
+            // agent might be waiting already
+            if (agents[agent_i].path.size() != agents[agent_j].path.size()) {
+                int smaller_path_agent =
+                  agents[agent_i].path.size() < agents[agent_j].path.size() ? agent_i : agent_j;
+                int larger_path_agent =
+                  agents[agent_i].path.size() < agents[agent_j].path.size() ? agent_j : agent_i;
+                int last_location_of_smaller_path_agent =
+                  agents[smaller_path_agent].path.back().location;
+                for (int timestep = (int)min_path_length;
+                     timestep < (int)agents[larger_path_agent].path.size();
+                     timestep++) {
+                    int location_of_larger_path_agent =
+                      agents[larger_path_agent].path.at(timestep).location;
+                    if (last_location_of_smaller_path_agent == location_of_larger_path_agent) {
+                        PLOGE << "Agents " << agent_i << " and " << agent_j
+                              << " collide with each other at "
+                              << last_location_of_smaller_path_agent << " at timestep " << timestep
+                              << endl;
+                        return false;
+                    }
+                }
+            }
+        }
+    return true;
+}

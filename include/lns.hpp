@@ -9,7 +9,8 @@ struct Agent
 {
 
     int id;
-    vector<Path*> paths;
+    Path path;
+    vector<Path*> task_paths;
     SingleAgentSolver* path_planner = nullptr;
 
     Agent(const Instance& instance, int id)
@@ -50,7 +51,8 @@ class LNS
 
     LNS(int num_of_iterations, Instance& instance, int neighbor_size, double time_limit);
     inline Instance getInstance() { return instance; }
-    bool validateSolution() const;
     bool run();
+    bool validateSolution();
+    void joinPaths();
     void build_constraint_table(ConstraintTable& constraint_table, int agent, int task);
 };
