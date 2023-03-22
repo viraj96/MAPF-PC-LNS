@@ -134,12 +134,6 @@ LNS::run()
     PLOGD << "Initial solution cost = " << initial_sum_of_costs
           << ", Runtime = " << initial_solution_runtime << endl;
 
-    bool valid = validateSolution();
-    if (!valid) {
-        PLOGE << "The initial solution was not valid!\n";
-        return false;
-    }
-
     while (runtime < time_limit && (int)iteration_stats.size() <= num_of_iterations) {
         runtime = ((fsec)(Time::now() - start_time)).count();
         bool valid = validateSolution();
