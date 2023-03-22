@@ -52,8 +52,8 @@ class LNS
     LNS(int num_of_iterations, Instance& instance, int neighbor_size, double time_limit);
     inline Instance getInstance() { return instance; }
     bool run();
-    bool validateSolution();
     void joinPaths();
     void printPaths() const;
+    bool validateSolution(set<int>* conflicted_tasks = nullptr);
     void build_constraint_table(ConstraintTable& constraint_table, int agent, int task);
 };

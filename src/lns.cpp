@@ -136,9 +136,12 @@ LNS::run()
 
     while (runtime < time_limit && (int)iteration_stats.size() <= num_of_iterations) {
         runtime = ((fsec)(Time::now() - start_time)).count();
-        bool valid = validateSolution();
+        set<int> conflicted_tasks;
+        bool valid = validateSolution(&conflicted_tasks);
         if (!valid) {
             PLOGE << "The initial solution was not valid!\n";
+            for (int ct : conflicted_tasks)
+                PLOGD << "Task " << ct << endl;
             return false;
         }
     }
@@ -192,8 +195,10 @@ LNS::build_constraint_table(ConstraintTable& constraint_table, int agent, int ta
 }
 
 bool
-LNS::validateSolution()
+LNS::validateSolution(set<int>* conflicted_tasks)
 {
+
+    bool result = true;
 
     // Check that the precedence constraints are not violated
     vector<pair<int, int>> precedence_constraints = instance.getPrecedenceConstraints();
@@ -205,7 +210,13 @@ LNS::validateSolution()
         if (agents[agent_a].path.timestamps[task_a] >= agents[agent_b].path.timestamps[task_b]) {
             PLOGE << "Temporal conflict between " << agent_a << " doing local task " << task_a
                   << " and agent " << agent_b << " doing local task " << task_b << endl;
-            return false;
+            result = false;
+            if (conflicted_tasks == nullptr)
+                return false;
+            else {
+                conflicted_tasks->insert(task_a);
+                conflicted_tasks->insert(task_b);
+            }
         }
     }
 
@@ -226,7 +237,23 @@ LNS::validateSolution()
                     PLOGE << "Agents " << agent_i << " and " << agent_j
                           << " collide with each other at (" << coord.first << ", " << coord.second
                           << ") at timestep " << timestep << endl;
-                    return false;
+                    result = false;
+                    if (conflicted_tasks == nullptr)
+                        return false;
+                    else {
+                        for (int goals = 0; goals < (int)instance.getAgentTasks(agent_i).size();
+                             goals++)
+                            if (agents[agent_i].path.timestamps[goals] > timestep) {
+                                conflicted_tasks->insert(instance.getAgentTasks(agent_i)[goals]);
+                                break;
+                            }
+                        for (int goals = 0; goals < (int)instance.getAgentTasks(agent_j).size();
+                             goals++)
+                            if (agents[agent_j].path.timestamps[goals] > timestep) {
+                                conflicted_tasks->insert(instance.getAgentTasks(agent_j)[goals]);
+                                break;
+                            }
+                    }
                 }
                 // Check that any two agents are not following the same edge in the opposite
                 // direction at the same timestep
@@ -239,7 +266,23 @@ LNS::validateSolution()
                           << " collide with each other at (" << coord_i.first << ", "
                           << coord_i.second << ") --> (" << coord_j.first << ", " << coord_j.second
                           << ") at timestep " << timestep << endl;
-                    return false;
+                    result = false;
+                    if (conflicted_tasks == nullptr)
+                        return false;
+                    else {
+                        for (int goals = 0; goals < (int)instance.getAgentTasks(agent_i).size();
+                             goals++)
+                            if (agents[agent_i].path.timestamps[goals] > timestep) {
+                                conflicted_tasks->insert(instance.getAgentTasks(agent_i)[goals]);
+                                break;
+                            }
+                        for (int goals = 0; goals < (int)instance.getAgentTasks(agent_j).size();
+                             goals++)
+                            if (agents[agent_j].path.timestamps[goals] > timestep) {
+                                conflicted_tasks->insert(instance.getAgentTasks(agent_j)[goals]);
+                                break;
+                            }
+                    }
                 }
             }
 
@@ -263,12 +306,33 @@ LNS::validateSolution()
                         PLOGE << "Agents " << agent_i << " and " << agent_j
                               << " collide with each other at (" << coord.first << ", "
                               << coord.second << ") at timestep " << timestep << endl;
-                        return false;
+                        result = false;
+                        if (conflicted_tasks == nullptr)
+                            return false;
+                        else {
+                            for (int goals = 0; goals < (int)instance.getAgentTasks(agent_i).size();
+                                 goals++)
+                                if (agents[agent_i].path.timestamps[goals] > timestep) {
+                                    conflicted_tasks->insert(
+                                      instance.getAgentTasks(agent_i)[goals]);
+                                    break;
+                                }
+                            for (int goals = 0; goals < (int)instance.getAgentTasks(agent_j).size();
+                                 goals++)
+                                if (agents[agent_j].path.timestamps[goals] > timestep ||
+                                    agents[agent_j].path.timestamps
+                                        [(int)agents[agent_j].path.timestamps.size() - 1] <
+                                      timestep) {
+                                    conflicted_tasks->insert(
+                                      instance.getAgentTasks(agent_j)[goals]);
+                                    break;
+                                }
+                        }
                     }
                 }
             }
         }
-    return true;
+    return result;
 }
 
 void
