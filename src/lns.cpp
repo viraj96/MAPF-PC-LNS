@@ -91,6 +91,7 @@ LNS::run()
         return success;
     }
 
+    paths.resize(instance.getTasksNum(), Path());
     initial_paths.resize(instance.getTasksNum(), Path());
     for (int id : planning_order) {
         pair<int, int> agent_task = instance.id_to_agent_task[id];
@@ -112,6 +113,7 @@ LNS::run()
         }
 
         agents[agent].task_paths[task] = &initial_paths[id];
+        paths[id] = initial_paths[id];
     }
 
     joinPaths();
@@ -138,14 +140,49 @@ LNS::run()
         runtime = ((fsec)(Time::now() - start_time)).count();
         set<int> conflicted_tasks;
         bool valid = validateSolution(&conflicted_tasks);
+        if (valid) {
+            PLOGV << "Solution was found!\n";
+            break;
+        }
         if (!valid) {
             PLOGE << "The initial solution was not valid!\n";
-            for (int ct : conflicted_tasks)
-                PLOGD << "Task " << ct << endl;
-            return false;
-        } else
-            return true;
+
+            // Maintain a copy of the previous paths that were found
+            vector<Path> previous_paths = paths;
+            vector<vector<int>> previous_task_assignments = instance.getTaskAssignments();
+
+            Potential potential_improvement;
+            potential_improvement.task_assignments = previous_task_assignments;
+
+            // Delete the paths for the conflicting tasks
+            for (int ct : conflicted_tasks) {
+                pair<int, int> agent_task = instance.id_to_agent_task[ct];
+                int agent = agent_task.first, task = agent_task.second;
+                /* instance.clearTaskAssignment() */
+                /* agents[agent].task_paths[task] = nullptr; */
+                /* agents[agent].path_planner->goal_locations[task] = -1; */
+                /* vector<int> agent_task_assignments = previous_task_assignments[agent]; */
+                /* instance.clearTaskAssignment(agent, task); */
+                /* instance.clearInterAgentPrecedenceConstraint(ct); */
+                PLOGD << "Task ID: " << ct << "\tAgent: " << agent << "\tTask: " << task << endl;
+            }
+            assert(false);
+
+            // For each conflicting task find the best placement and the second best placement
+
+            // First delete the old assignment
+            // After selecting a task
+            // Update the task assignment and precedence constraint array in instance
+            // Update the goal locations in single agent solver
+            // Update the LNS object values
+        }
     }
+
+    PLOGV << "MAPF-PC-LNS: "
+          << "\n\tRuntime = " << runtime << "\n\tIterations = " << iteration_stats.size()
+          << "\n\tSolution Cost = " << sum_of_costs
+          << "\n\tInitial Solution Cost = " << initial_sum_of_costs
+          << "\n\tNumber of failures = " << num_of_failures << endl;
 
     // change this later
     return true;
@@ -215,8 +252,8 @@ LNS::validateSolution(set<int>* conflicted_tasks)
             if (conflicted_tasks == nullptr)
                 return false;
             else {
-                conflicted_tasks->insert(task_a);
-                conflicted_tasks->insert(task_b);
+                conflicted_tasks->insert(precedence_constraint.first);
+                conflicted_tasks->insert(precedence_constraint.second);
             }
         }
     }
@@ -245,13 +282,17 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                         for (int goals = 0; goals < (int)instance.getAgentTasks(agent_i).size();
                              goals++)
                             if (agents[agent_i].path.timestamps[goals] > timestep) {
-                                conflicted_tasks->insert(instance.getAgentTasks(agent_i)[goals]);
+                                int task_id = instance.getAgentTasks(agent_i)[goals];
+                                conflicted_tasks->insert(instance.agent_task_to_id(make_pair(
+                                  agent_i, instance.getLocalTaskIndex(agent_i, task_id))));
                                 break;
                             }
                         for (int goals = 0; goals < (int)instance.getAgentTasks(agent_j).size();
                              goals++)
                             if (agents[agent_j].path.timestamps[goals] > timestep) {
-                                conflicted_tasks->insert(instance.getAgentTasks(agent_j)[goals]);
+                                int task_id = instance.getAgentTasks(agent_j)[goals];
+                                conflicted_tasks->insert(instance.agent_task_to_id(make_pair(
+                                  agent_j, instance.getLocalTaskIndex(agent_j, task_id))));
                                 break;
                             }
                     }
@@ -274,13 +315,17 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                         for (int goals = 0; goals < (int)instance.getAgentTasks(agent_i).size();
                              goals++)
                             if (agents[agent_i].path.timestamps[goals] > timestep) {
-                                conflicted_tasks->insert(instance.getAgentTasks(agent_i)[goals]);
+                                int task_id = instance.getAgentTasks(agent_i)[goals];
+                                conflicted_tasks->insert(instance.agent_task_to_id(make_pair(
+                                  agent_i, instance.getLocalTaskIndex(agent_i, task_id))));
                                 break;
                             }
                         for (int goals = 0; goals < (int)instance.getAgentTasks(agent_j).size();
                              goals++)
                             if (agents[agent_j].path.timestamps[goals] > timestep) {
-                                conflicted_tasks->insert(instance.getAgentTasks(agent_j)[goals]);
+                                int task_id = instance.getAgentTasks(agent_j)[goals];
+                                conflicted_tasks->insert(instance.agent_task_to_id(make_pair(
+                                  agent_j, instance.getLocalTaskIndex(agent_j, task_id))));
                                 break;
                             }
                     }
@@ -314,8 +359,9 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                             for (int goals = 0; goals < (int)instance.getAgentTasks(agent_i).size();
                                  goals++)
                                 if (agents[agent_i].path.timestamps[goals] > timestep) {
-                                    conflicted_tasks->insert(
-                                      instance.getAgentTasks(agent_i)[goals]);
+                                    int task_id = instance.getAgentTasks(agent_i)[goals];
+                                    conflicted_tasks->insert(instance.agent_task_to_id(make_pair(
+                                      agent_i, instance.getLocalTaskIndex(agent_i, task_id))));
                                     break;
                                 }
                             for (int goals = 0; goals < (int)instance.getAgentTasks(agent_j).size();
@@ -324,8 +370,9 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                                     agents[agent_j].path.timestamps
                                         [(int)agents[agent_j].path.timestamps.size() - 1] <
                                       timestep) {
-                                    conflicted_tasks->insert(
-                                      instance.getAgentTasks(agent_j)[goals]);
+                                    int task_id = instance.getAgentTasks(agent_j)[goals];
+                                    conflicted_tasks->insert(instance.agent_task_to_id(make_pair(
+                                      agent_j, instance.getLocalTaskIndex(agent_j, task_id))));
                                     break;
                                 }
                         }

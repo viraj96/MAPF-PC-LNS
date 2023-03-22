@@ -49,6 +49,28 @@ class Instance
     int getAgentWithTask(int task) const;
     void assignTaskToAgent(int agent, int task);
     vector<int> getAgentTasks(int agent) const;
+    void clearInterAgentPrecedenceConstraint(int id)
+    {
+        pair<int, int> agent_task = id_to_agent_task[id];
+        int agent = agent_task.first, task = agent_task.second;
+        int previous_task = -1, next_task = -1;
+        if (task != 0)
+            previous_task = id_to_agent_task[task_assignments[agent][task - 1]].second;
+        if (task != (int)task_assignments[agent].size())
+            next_task = id_to_agent_task[task_assignments[agent][task + 1]].second;
+
+        precedence_constraints.erase(
+          std::remove_if(precedence_constraints.begin(),
+                         precedence_constraints.end(),
+                         [id, previous_task, next_task](pair<int, int> x) {
+                             return ((x.first == previous_task && x.second == id) &&
+                                     (x.first == id && x.second == next_task));
+                         }),
+          precedence_constraints.end());
+
+        if (previous_task != -1 && next_task != -1)
+            insertPrecedenceConstraint(previous_task, next_task);
+    }
     vector<int> getTaskLocations(vector<int> tasks) const
     {
         vector<int> task_locs(tasks.size(), 0);
@@ -80,6 +102,7 @@ class Instance
             return false;
         return getManhattanDistance(curr, next) < 2;
     };
+    inline void clearTaskAssignment(int agent, int task) { task_assignments[agent][task] = -1; }
 
     inline int linearizeCoordinate(int row, int col) const
     {

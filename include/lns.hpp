@@ -7,7 +7,6 @@
 
 struct Agent
 {
-
     int id;
     Path path;
     vector<Path*> task_paths;
@@ -21,8 +20,18 @@ struct Agent
     ~Agent() { delete path_planner; }
 };
 
-struct Neighbor
+struct Potential
 {
+    vector<int> id_base;
+    vector<vector<int>> task_assignments;
+    vector<pair<int, int>> precedence_constraints, id_to_agent_task;
+
+    int agent_task_to_id(pair<int, int> agent_task) const
+    {
+        int agent = agent_task.first, task = agent_task.second;
+        return id_base[agent] + task;
+    }
+
     vector<int> tasks;
     set<pair<int, int>> conflicting_pairs_of_tasks;
 };
@@ -44,7 +53,7 @@ class LNS
                                           preprocessing_time = 0, initial_solution_runtime = 0;
 
   public:
-    vector<Path> initial_paths;
+    vector<Path> initial_paths, paths;
     list<IterationStats> iteration_stats;
     int num_of_failures = 0, sum_of_costs = 0;
     double runtime = 0, average_group_size = -1;
