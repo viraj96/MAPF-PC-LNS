@@ -54,5 +54,6 @@ class LNS
     bool run();
     bool validateSolution();
     void joinPaths();
+    void printPaths() const;
     void build_constraint_table(ConstraintTable& constraint_table, int agent, int task);
 };

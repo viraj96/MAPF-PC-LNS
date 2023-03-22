@@ -73,7 +73,7 @@ struct Path
     PathEntry& front() { return path.front(); }
     const PathEntry& back() const { return path.back(); }
     const PathEntry& front() const { return path.front(); }
-    PathEntry& at(int idx) { return path[idx]; }
+    const PathEntry& at(int idx) const { return path[idx]; }
 
     PathEntry& operator[](int idx) { return path[idx]; }
     const PathEntry& operator[](int idx) const { return path[idx]; }

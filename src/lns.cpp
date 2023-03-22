@@ -121,13 +121,8 @@ LNS::run()
         initial_sum_of_costs += agents[i].path.end_time();
     }
 
-    PLOGI << "Printing paths to verify initial solution correctness\n";
-    for (int i = 0; i < instance.getAgentNum(); i++) {
-        PLOGI << "Agent " << i << "'s path: ";
-        for (int j = 0; j < (int)agents[i].path.size() - 1; j++)
-            PLOGI << agents[i].path.at(j).location << " ";
-        PLOGI << endl << endl;
-    }
+    printPaths();
+
     initial_solution_runtime = ((fsec)(Time::now() - start_time)).count();
     iteration_stats.emplace_back(initial_solution_runtime,
                                  "greedy",
@@ -233,9 +228,10 @@ LNS::validateSolution()
 
                 // Check that any two agents are not at the same location at the same timestep
                 if (location_agent_i == location_agent_j) {
+                    pair<int, int> coord = instance.getCoordinate(location_agent_i);
                     PLOGE << "Agents " << agent_i << " and " << agent_j
-                          << " collide with each other at " << location_agent_i << " at timestep "
-                          << timestep << endl;
+                          << " collide with each other at (" << coord.first << ", " << coord.second
+                          << ") at timestep " << timestep << endl;
                     return false;
                 }
                 // Check that any two agents are not following the same edge in the opposite
@@ -243,9 +239,12 @@ LNS::validateSolution()
                 else if (timestep < (int)min_path_length - 1 &&
                          location_agent_i == agents[agent_j].path.at(timestep + 1).location &&
                          location_agent_j == agents[agent_i].path.at(timestep + 1).location) {
+                    pair<int, int> coord_i = instance.getCoordinate(location_agent_i),
+                                   coord_j = instance.getCoordinate(location_agent_j);
                     PLOGE << "Agents " << agent_i << " and " << agent_j
-                          << " collide with each other at (" << location_agent_i << " --> "
-                          << location_agent_j << ") at timestep " << timestep << endl;
+                          << " collide with each other at (" << coord_i.first << ", "
+                          << coord_i.second << ") --> (" << coord_j.first << ", " << coord_j.second
+                          << ") at timestep " << timestep << endl;
                     return false;
                 }
             }
@@ -265,14 +264,43 @@ LNS::validateSolution()
                     int location_of_larger_path_agent =
                       agents[larger_path_agent].path.at(timestep).location;
                     if (last_location_of_smaller_path_agent == location_of_larger_path_agent) {
+                        pair<int, int> coord =
+                          instance.getCoordinate(last_location_of_smaller_path_agent);
                         PLOGE << "Agents " << agent_i << " and " << agent_j
-                              << " collide with each other at "
-                              << last_location_of_smaller_path_agent << " at timestep " << timestep
-                              << endl;
+                              << " collide with each other at (" << coord.first << ", "
+                              << coord.second << ") at timestep " << timestep << endl;
                         return false;
                     }
                 }
             }
         }
     return true;
+}
+
+void
+LNS::printPaths() const
+{
+    for (int i = 0; i < instance.getAgentNum(); i++) {
+        cout << "Agent " << i << " (cost = " << agents[i].path.size() - 1 << "): ";
+        cout << "\n\tPaths:\n\t";
+        for (int t = 0; t < (int)agents[i].path.size(); t++) {
+            pair<int, int> coord = instance.getCoordinate(agents[i].path.at(t).location);
+            cout << "(" << coord.first << ", " << coord.second << ")@" << t;
+            if (agents[i].path.at(t).is_goal)
+                cout << "*";
+            if (i != (int)agents[i].path.size() - 1)
+                cout << " -> ";
+        }
+        cout << endl;
+        cout << "\tTimestamps:\n\t";
+        for (int j = 0; j < (int)agents[i].path.timestamps.size(); j++) {
+            pair<int, int> goal_coord =
+              instance.getCoordinate(agents[i].path_planner->goal_locations[j]);
+            cout << "(" << goal_coord.first << ", " << goal_coord.second << ")@"
+                 << agents[i].path.timestamps[j];
+            if (j != (int)agents[i].path.timestamps.size() - 1)
+                cout << " -> ";
+        }
+        cout << endl;
+    }
 }
