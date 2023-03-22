@@ -21,7 +21,10 @@ class ConstraintTable
     vector<int> leq_goal_time, g_goal_time; // what do these do?
 
     ConstraintTable() = default;
-    ConstraintTable(size_t num_col, size_t map_size);
+    ConstraintTable(size_t num_col, size_t map_size)
+      : num_col(num_col)
+      , map_size(map_size)
+    {}
     ConstraintTable(const ConstraintTable& old) { copy(old); }
 
     int getHoldingTime();

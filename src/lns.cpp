@@ -101,7 +101,7 @@ LNS::run()
               initial_paths[instance.agent_task_to_id(make_pair(agent, task - 1))].end_time();
         }
         PLOGI << "Planning for agent " << agent << " and task " << task << endl;
-        ConstraintTable constraint_table;
+        ConstraintTable constraint_table(instance.num_of_cols, instance.map_size);
         build_constraint_table(constraint_table, agent, task);
 
         initial_paths[id] =
@@ -143,7 +143,8 @@ LNS::run()
             for (int ct : conflicted_tasks)
                 PLOGD << "Task " << ct << endl;
             return false;
-        }
+        } else
+            return true;
     }
 
     // change this later

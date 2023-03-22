@@ -20,7 +20,7 @@ ConstraintTable::getHoldingTime()
 bool
 ConstraintTable::constrained(size_t location, int timestep) const
 {
-    assert(location >= 0);
+    assert((int)location >= 0);
     if (location < map_size) {
         const auto& it = landmarks.find(timestep);
         if (it != landmarks.end() && it->second != location)
@@ -51,7 +51,7 @@ ConstraintTable::insert2CT(size_t from, size_t to, int t_min, int t_max)
 void
 ConstraintTable::insert2CT(size_t location, int t_min, int t_max)
 {
-    assert(location >= 0);
+    assert((int)location >= 0);
     constraint_table[location].emplace_back(t_min, t_max);
     if (t_max < MAX_TIMESTEP && t_max > latest_timestep)
         latest_timestep = t_max;
