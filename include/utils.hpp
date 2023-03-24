@@ -6,7 +6,7 @@
 #include "mlastar.hpp"
 
 void
-greedy_task_assignment(Instance* instance);
+greedy_task_assignment(const Instance* instance, Solution* solution);
 
 bool
-topological_sort(Instance* instance, vector<int>& planning_order);
+topological_sort(const Instance* instance, Solution* solution, vector<int>& planning_order);

@@ -25,12 +25,6 @@ Instance::Instance(const string& map_fname,
     }
 }
 
-void
-Instance::assignTaskToAgent(int agent, int task)
-{
-    task_assignments[agent].push_back(task);
-}
-
 bool
 Instance::loadMap()
 {
@@ -97,7 +91,6 @@ Instance::loadAgentsAndTasks()
 
     // Reading the agent start locations
     start_locations.resize(num_of_agents);
-    task_assignments.resize(num_of_agents);
 
     for (int i = 0; i < num_of_agents; i++) {
         getline(file, line);
@@ -178,20 +171,6 @@ Instance::getNeighbors(int current) const
 }
 
 void
-Instance::printAgents() const
-{
-    for (int i = 0; i < num_of_agents; i++) {
-        pair<int, int> start_loc = getCoordinate(start_locations[i]);
-        PLOGI << "Agent " << i << " : S = (" << start_loc.first << ", " << start_loc.second
-              << ") ;\nGoals : \n";
-        for (int j = 0; j < (int)task_assignments[i].size(); j++) {
-            pair<int, int> goal_loc = getCoordinate(task_assignments[i][j]);
-            PLOGI << "\t" << j << " : (" << goal_loc.first << " , " << goal_loc.second << ")\n";
-        }
-    }
-}
-
-void
 Instance::printMap() const
 {
     for (int i = 0; i < num_of_rows; i++) {
@@ -203,20 +182,4 @@ Instance::printMap() const
         }
         PLOGI << endl;
     }
-}
-
-vector<int>
-Instance::getAgentTasks(int agent) const
-{
-    return task_assignments[agent];
-}
-
-int
-Instance::getAgentWithTask(int task) const
-{
-    for (int i = 0; i < num_of_agents; i++)
-        for (int j = 0; j < (int)task_assignments[i].size(); j++)
-            if (task_assignments[i][j] == task)
-                return i;
-    return -1;
 }

@@ -1,7 +1,7 @@
 #include "utils.hpp"
 
 void
-greedy_task_assignment(Instance* instance)
+greedy_task_assignment(const Instance* instance, Solution* solution)
 {
     pq q;
     vector<int> agent_last_timesteps(instance->getAgentNum(), 0);
@@ -21,8 +21,6 @@ greedy_task_assignment(Instance* instance)
         tie(timestep, agent) = q.top();
 
         PLOGD << "Planning for agent " << agent << " at timestep " << timestep << endl;
-        /* if (agent == 2 && timestep == 13) */
-        /*     assert(false); */
         int last_location_of_agent = agent_last_locations[agent];
         q.pop();
 
@@ -60,7 +58,7 @@ greedy_task_assignment(Instance* instance)
             PLOGD << "Assign task " << best_task_to_service << " to agent " << agent
                   << " with distance "
                   << search_engine->heuristic[best_task_to_service][last_location_of_agent] << endl;
-            instance->assignTaskToAgent(agent, best_task_to_service);
+            solution->assignTaskToAgent(agent, best_task_to_service);
             agent_last_timesteps[agent] = best_task_to_service_timestep;
             task_complete_timesteps[best_task_to_service] = best_task_to_service_timestep;
             agent_last_locations[agent] = instance->getTaskLocations()[best_task_to_service];
@@ -72,7 +70,7 @@ greedy_task_assignment(Instance* instance)
 }
 
 bool
-topological_sort(Instance* instance, vector<int>& planning_order)
+topological_sort(const Instance* instance, Solution* solution, vector<int>& planning_order)
 {
     planning_order.clear();
     vector<bool> closed(instance->getTasksNum(), false);
@@ -80,7 +78,7 @@ topological_sort(Instance* instance, vector<int>& planning_order)
 
     vector<vector<int>> successors;
     successors.resize(instance->getTasksNum());
-    for (pair<int, int> precedence_constraint : instance->getPrecedenceConstraints())
+    for (pair<int, int> precedence_constraint : solution->precedence_constraints)
         successors[precedence_constraint.first].push_back(precedence_constraint.second);
 
     for (int task = 0; task < instance->getTasksNum(); task++) {

@@ -62,7 +62,7 @@ struct PathEntry
 struct Path
 {
     int begin_time = 0;
-    int end_time() { return begin_time + size() - 1; }
+    int end_time() { return begin_time + (int)size() - 1; }
 
     vector<PathEntry> path;
     vector<int> timestamps;
