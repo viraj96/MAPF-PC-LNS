@@ -32,13 +32,9 @@ LNS::joinPaths(vector<int> agents_to_compute)
     for (int i = 0; i < instance.getAgentNum(); i++) {
         if (std::find(agents_to_compute.begin(), agents_to_compute.end(), i) !=
             agents_to_compute.end()) {
-            PLOGD << "Agent " << i << endl;
             for (int j = 0; j < (int)agents[i].path_planner->goal_locations.size(); j++) {
-                PLOGD << "Local task " << j << endl;
                 if (j == 0)
                     agents[i].path.path.push_back(agents[i].task_paths[j]->front());
-                PLOGD << agents[i].path.size() - 1 << endl;
-                PLOGD << agents[i].task_paths[j]->begin_time;
                 assert((int)agents[i].path.size() - 1 == agents[i].task_paths[j]->begin_time);
                 for (int k = 1; k < (int)agents[i].task_paths[j]->size(); k++)
                     agents[i].path.path.push_back(agents[i].task_paths[j]->at(k));
@@ -137,14 +133,11 @@ LNS::run()
 
     while (runtime < time_limit && (int)iteration_stats.size() <= num_of_iterations) {
         runtime = ((fsec)(Time::now() - planner_start_time)).count();
-        set<int> conflicted_tasks;
-        bool valid = validateSolution(&conflicted_tasks);
+        bool valid = validateSolution(true);
         if (valid) {
             PLOGV << "Solution was found!\n";
             break;
         }
-        /* else */
-        /*     return false; */
         if (!valid) {
 
             PLOGE << "The initial solution was not valid!\n";
@@ -152,7 +145,7 @@ LNS::run()
             previous_solution = solution;
 
             unordered_map<int, int> affected_agents, global_to_local_task_id;
-            for (int ct : conflicted_tasks) {
+            for (int ct : solution.neighbor.conflicted_tasks) {
                 int agent = solution.getAgentWithTask(ct),
                     ct_position = solution.getLocalTaskIndex(agent, ct);
                 solution.paths[ct] = Path();
@@ -188,15 +181,15 @@ LNS::run()
             }
 
             for (int task : planning_order) {
-                if (std::find(conflicted_tasks.begin(), conflicted_tasks.end(), task) !=
-                    conflicted_tasks.end()) {
+                if (std::find(solution.neighbor.conflicted_tasks.begin(),
+                              solution.neighbor.conflicted_tasks.end(),
+                              task) != solution.neighbor.conflicted_tasks.end()) {
                     assert(solution.paths[task].empty());
                     int start_time = 0, agent = affected_agents[task],
                         task_position = global_to_local_task_id[task];
                     if (task_position != 0)
                         start_time = agents[agent].task_paths[task_position - 1]->end_time();
                     if (task_position != (int)solution.task_assignments[agent].size()) {
-                        PLOGD << "Path going to be updated\n\n\n";
                         int next_task = solution.task_assignments[agent][task_position + 1];
                         ConstraintTable constraint_table(instance.num_of_cols, instance.map_size);
                         build_constraint_table(constraint_table, agent, next_task);
@@ -216,8 +209,10 @@ LNS::run()
             for (int i = 0; i < (int)agents.size(); i++) {
                 sum_of_costs += agents[i].path.end_time();
             }
-            PLOGD << "Updated solution cost = " << sum_of_costs << endl;
             printPaths();
+            PLOGD << "Updated solution cost = " << sum_of_costs << endl;
+            valid = validateSolution();
+            PLOGD << "valid = " << valid << endl;
             assert(false);
         }
     }
@@ -240,8 +235,16 @@ LNS::build_constraint_table(ConstraintTable& constraint_table, int agent, int ta
 
     vector<vector<int>> ancestors;
     ancestors.resize(instance.getTasksNum());
-    for (pair<int, int> precedence_constraint : solution.precedence_constraints)
+    for (pair<int, int> precedence_constraint : solution.precedence_constraints) {
+        if (std::find(solution.neighbor.conflicted_tasks.begin(),
+                      solution.neighbor.conflicted_tasks.end(),
+                      precedence_constraint.first) != solution.neighbor.conflicted_tasks.end() ||
+            std::find(solution.neighbor.conflicted_tasks.begin(),
+                      solution.neighbor.conflicted_tasks.end(),
+                      precedence_constraint.second) != solution.neighbor.conflicted_tasks.end())
+            continue;
         ancestors[precedence_constraint.second].push_back(precedence_constraint.first);
+    }
 
     unordered_set<int> set_of_tasks_to_complete;
     stack<int> q({ task });
@@ -278,7 +281,7 @@ LNS::build_constraint_table(ConstraintTable& constraint_table, int agent, int ta
 }
 
 bool
-LNS::validateSolution(set<int>* conflicted_tasks)
+LNS::validateSolution(bool extract)
 {
 
     bool result = true;
@@ -286,6 +289,13 @@ LNS::validateSolution(set<int>* conflicted_tasks)
     // Check that the precedence constraints are not violated
     vector<pair<int, int>> precedence_constraints = solution.precedence_constraints;
     for (pair<int, int> precedence_constraint : precedence_constraints) {
+        if (std::find(solution.neighbor.conflicted_tasks.begin(),
+                      solution.neighbor.conflicted_tasks.end(),
+                      precedence_constraint.first) != solution.neighbor.conflicted_tasks.end() ||
+            std::find(solution.neighbor.conflicted_tasks.begin(),
+                      solution.neighbor.conflicted_tasks.end(),
+                      precedence_constraint.second) != solution.neighbor.conflicted_tasks.end())
+            continue;
         int agent_a = solution.getAgentWithTask(precedence_constraint.first),
             agent_b = solution.getAgentWithTask(precedence_constraint.second);
         int task_position_a = solution.getLocalTaskIndex(agent_a, precedence_constraint.first),
@@ -296,11 +306,11 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                   << precedence_constraint.first << " and agent " << agent_b << " doing local task "
                   << precedence_constraint.second << endl;
             result = false;
-            if (conflicted_tasks == nullptr)
+            if (!extract)
                 return false;
             else {
-                conflicted_tasks->insert(precedence_constraint.first);
-                conflicted_tasks->insert(precedence_constraint.second);
+                solution.neighbor.conflicted_tasks.insert(precedence_constraint.first);
+                solution.neighbor.conflicted_tasks.insert(precedence_constraint.second);
             }
         }
     }
@@ -323,7 +333,7 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                           << " collide with each other at (" << coord.first << ", " << coord.second
                           << ") at timestep " << timestep << endl;
                     result = false;
-                    if (conflicted_tasks == nullptr)
+                    if (!extract)
                         return false;
                     else {
                         for (int goals = 0;
@@ -331,7 +341,7 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                              goals++)
                             if (agents[agent_i].path.timestamps[goals] > timestep) {
                                 int task_id = solution.getAgentGlobalTasks(agent_i)[goals];
-                                conflicted_tasks->insert(task_id);
+                                solution.neighbor.conflicted_tasks.insert(task_id);
                                 break;
                             }
                         for (int goals = 0;
@@ -339,7 +349,7 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                              goals++)
                             if (agents[agent_j].path.timestamps[goals] > timestep) {
                                 int task_id = solution.getAgentGlobalTasks(agent_j)[goals];
-                                conflicted_tasks->insert(task_id);
+                                solution.neighbor.conflicted_tasks.insert(task_id);
                                 break;
                             }
                     }
@@ -356,7 +366,7 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                           << coord_i.second << ") --> (" << coord_j.first << ", " << coord_j.second
                           << ") at timestep " << timestep << endl;
                     result = false;
-                    if (conflicted_tasks == nullptr)
+                    if (!extract)
                         return false;
                     else {
                         for (int goals = 0;
@@ -364,7 +374,7 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                              goals++)
                             if (agents[agent_i].path.timestamps[goals] > timestep) {
                                 int task_id = solution.getAgentGlobalTasks(agent_i)[goals];
-                                conflicted_tasks->insert(task_id);
+                                solution.neighbor.conflicted_tasks.insert(task_id);
                                 break;
                             }
                         for (int goals = 0;
@@ -372,7 +382,7 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                              goals++)
                             if (agents[agent_j].path.timestamps[goals] > timestep) {
                                 int task_id = solution.getAgentGlobalTasks(agent_j)[goals];
-                                conflicted_tasks->insert(task_id);
+                                solution.neighbor.conflicted_tasks.insert(task_id);
                                 break;
                             }
                     }
@@ -400,28 +410,49 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                               << " collide with each other at (" << coord.first << ", "
                               << coord.second << ") at timestep " << timestep << endl;
                         result = false;
-                        if (conflicted_tasks == nullptr)
+                        if (!extract)
                             return false;
                         else {
                             for (int goals = 0;
                                  goals < (int)solution.getAgentGlobalTasks(agent_i).size();
-                                 goals++)
+                                 goals++) {
                                 if (agents[agent_i].path.timestamps[goals] > timestep) {
                                     int task_id = solution.getAgentGlobalTasks(agent_i)[goals];
-                                    conflicted_tasks->insert(task_id);
+                                    solution.neighbor.conflicted_tasks.insert(task_id);
                                     break;
                                 }
+                                if (agents[agent_i]
+                                      .path
+                                      .timestamps[(int)agents[agent_i].path.timestamps.size() - 1] <
+                                    timestep) {
+                                    int last_task_position =
+                                      (int)agents[agent_i].path.timestamps.size() - 1;
+                                    int task_id =
+                                      solution.getAgentGlobalTasks(agent_i)[last_task_position];
+                                    solution.neighbor.conflicted_tasks.insert(task_id);
+                                    break;
+                                }
+                            }
                             for (int goals = 0;
                                  goals < (int)solution.getAgentGlobalTasks(agent_j).size();
-                                 goals++)
-                                if (agents[agent_j].path.timestamps[goals] > timestep ||
-                                    agents[agent_j].path.timestamps
-                                        [(int)agents[agent_j].path.timestamps.size() - 1] <
-                                      timestep) {
+                                 goals++) {
+                                if (agents[agent_j].path.timestamps[goals] > timestep) {
                                     int task_id = solution.getAgentGlobalTasks(agent_j)[goals];
-                                    conflicted_tasks->insert(task_id);
+                                    solution.neighbor.conflicted_tasks.insert(task_id);
                                     break;
                                 }
+                                if (agents[agent_j]
+                                      .path
+                                      .timestamps[(int)agents[agent_j].path.timestamps.size() - 1] <
+                                    timestep) {
+                                    int last_task_position =
+                                      (int)agents[agent_j].path.timestamps.size() - 1;
+                                    int task_id =
+                                      solution.getAgentGlobalTasks(agent_j)[last_task_position];
+                                    solution.neighbor.conflicted_tasks.insert(task_id);
+                                    break;
+                                }
+                            }
                         }
                     }
                 }

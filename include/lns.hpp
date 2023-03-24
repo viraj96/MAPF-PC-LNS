@@ -21,9 +21,15 @@ struct Agent
     ~Agent() { delete path_planner; }
 };
 
+struct Neighbor
+{
+    set<int> conflicted_tasks;
+};
+
 class Solution
 {
   public:
+    Neighbor neighbor;
     vector<Path> paths;
     int num_of_agents, num_of_tasks;
     vector<vector<int>> task_assignments;
@@ -53,14 +59,14 @@ class Solution
         int previous_task = -1, next_task = -1;
         if (task_position != 0)
             previous_task = task_assignments[agent][task_position - 1];
-        if (task != (int)task_assignments[agent].size())
+        if (task_position != (int)task_assignments[agent].size() - 1)
             next_task = task_assignments[agent][task_position + 1];
 
         precedence_constraints.erase(
           std::remove_if(precedence_constraints.begin(),
                          precedence_constraints.end(),
                          [task, previous_task, next_task](pair<int, int> x) {
-                             return ((x.first == previous_task && x.second == task) &&
+                             return ((x.first == previous_task && x.second == task) ||
                                      (x.first == task && x.second == next_task));
                          }),
           precedence_constraints.end());
@@ -108,7 +114,7 @@ class LNS
     inline Instance getInstance() { return instance; }
     bool run();
     void printPaths() const;
-    bool validateSolution(set<int>* conflicted_tasks = nullptr);
+    bool validateSolution(bool extract = false);
     void joinPaths(vector<int> agents_to_compute = vector<int>());
     void build_constraint_table(ConstraintTable& constraint_table, int agent, int task);
 
