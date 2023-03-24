@@ -209,11 +209,10 @@ LNS::run()
             for (int i = 0; i < (int)agents.size(); i++) {
                 sum_of_costs += agents[i].path.end_time();
             }
-            printPaths();
-            PLOGD << "Updated solution cost = " << sum_of_costs << endl;
-            valid = validateSolution();
-            PLOGD << "valid = " << valid << endl;
-            assert(false);
+            assert(validateSolution());
+
+            // Compute regret for each of the tasks that are in the conflicting set
+            // Pick the best one and repeat the whole process above
         }
     }
 
