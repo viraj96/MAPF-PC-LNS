@@ -114,6 +114,7 @@ class LNS
     inline Instance getInstance() { return instance; }
     bool run();
     void printPaths() const;
+    void prepareNextIteration();
     bool validateSolution(bool extract = false);
     void joinPaths(vector<int> agents_to_compute = vector<int>());
     void build_constraint_table(ConstraintTable& constraint_table, int agent, int task);

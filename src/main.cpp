@@ -46,7 +46,7 @@ main(int argc, char** argv)
     plog::get()->setMaxSeverity(static_cast<plog::Severity>(vm["severity"].as<int>()));
 
     /* srand((int)time(0)); */
-    srand(5);
+    srand(4);
 
     Instance instance(vm["map"].as<string>(),
                       vm["agents"].as<string>(),

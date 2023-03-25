@@ -117,6 +117,7 @@ LNS::run()
     for (int i = 0; i < (int)agents.size(); i++) {
         initial_sum_of_costs += agents[i].path.end_time();
     }
+    sum_of_costs = initial_sum_of_costs;
 
     printPaths();
 
@@ -144,71 +145,7 @@ LNS::run()
 
             previous_solution = solution;
 
-            unordered_map<int, int> affected_agents, global_to_local_task_id;
-            for (int ct : solution.neighbor.conflicted_tasks) {
-                int agent = solution.getAgentWithTask(ct),
-                    ct_position = solution.getLocalTaskIndex(agent, ct);
-                solution.paths[ct] = Path();
-                affected_agents.insert(make_pair(ct, agent));
-                solution.clearInterAgentPrecedenceConstraint(ct);
-                // needs to happen after clearing precedence constraints
-                solution.task_assignments[agent][ct_position] = -1;
-                agents[agent].task_paths[ct_position] = nullptr;
-                global_to_local_task_id.insert(make_pair(ct, ct_position));
-            }
-            vector<int> planning_order;
-            bool success = topological_sort(&instance, &solution, planning_order);
-            if (!success) {
-                PLOGE << "Topological sorting failed\n";
-                return success;
-            }
-            for (pair<int, int> task_agent : affected_agents) {
-                int agent = task_agent.second;
-                solution.task_assignments[agent].erase(
-                  std::remove_if(solution.task_assignments[agent].begin(),
-                                 solution.task_assignments[agent].end(),
-                                 [](int task) { return task == -1; }),
-                  solution.task_assignments[agent].end());
-                agents[agent].task_paths.erase(std::remove_if(agents[agent].task_paths.begin(),
-                                                              agents[agent].task_paths.end(),
-                                                              [](Path* p) { return p == nullptr; }),
-                                               agents[agent].task_paths.end());
-                agents[agent].path = Path();
-                vector<int> task_assignments = solution.getAgentGlobalTasks(agent);
-                vector<int> task_locations = instance.getTaskLocations(task_assignments);
-                agents[agent].path_planner->setGoalLocations(task_locations);
-                agents[agent].path_planner->compute_heuristics();
-            }
-
-            for (int task : planning_order) {
-                if (std::find(solution.neighbor.conflicted_tasks.begin(),
-                              solution.neighbor.conflicted_tasks.end(),
-                              task) != solution.neighbor.conflicted_tasks.end()) {
-                    assert(solution.paths[task].empty());
-                    int start_time = 0, agent = affected_agents[task],
-                        task_position = global_to_local_task_id[task];
-                    if (task_position != 0)
-                        start_time = agents[agent].task_paths[task_position - 1]->end_time();
-                    if (task_position != (int)solution.task_assignments[agent].size()) {
-                        int next_task = solution.task_assignments[agent][task_position + 1];
-                        ConstraintTable constraint_table(instance.num_of_cols, instance.map_size);
-                        build_constraint_table(constraint_table, agent, next_task);
-                        solution.paths[next_task] = agents[agent].path_planner->findPathSegment(
-                          constraint_table, start_time, task_position, 0);
-                        agents[agent].task_paths[task_position] = &solution.paths[next_task];
-                    }
-                }
-            }
-
-            vector<int> agents_to_compute;
-            for (pair<int, int> task_agent : affected_agents)
-                agents_to_compute.push_back(task_agent.second);
-            joinPaths(agents_to_compute);
-
-            int sum_of_costs = 0;
-            for (int i = 0; i < (int)agents.size(); i++) {
-                sum_of_costs += agents[i].path.end_time();
-            }
+            prepareNextIteration();
             assert(validateSolution());
 
             // Compute regret for each of the tasks that are in the conflicting set
@@ -224,6 +161,83 @@ LNS::run()
 
     // change this later
     return true;
+}
+
+void
+LNS::prepareNextIteration()
+{
+
+    PLOGI << "Preparing the solution object for next iteration\n";
+
+    unordered_map<int, int> affected_agents, global_to_local_task_id;
+    for (int ct : solution.neighbor.conflicted_tasks) {
+        int agent = solution.getAgentWithTask(ct),
+            ct_position = solution.getLocalTaskIndex(agent, ct);
+        solution.paths[ct] = Path();
+        affected_agents.insert(make_pair(ct, agent));
+        solution.clearInterAgentPrecedenceConstraint(ct);
+        // needs to happen after clearing precedence constraints
+        solution.task_assignments[agent][ct_position] = -1;
+        agents[agent].task_paths[ct_position] = nullptr;
+        global_to_local_task_id.insert(make_pair(ct, ct_position));
+    }
+
+    vector<int> planning_order;
+    assert(topological_sort(&instance, &solution, planning_order));
+
+    for (pair<int, int> task_agent : affected_agents) {
+        int agent = task_agent.second;
+        solution.task_assignments[agent].erase(
+          std::remove_if(solution.task_assignments[agent].begin(),
+                         solution.task_assignments[agent].end(),
+                         [](int task) { return task == -1; }),
+          solution.task_assignments[agent].end());
+        agents[agent].task_paths.erase(std::remove_if(agents[agent].task_paths.begin(),
+                                                      agents[agent].task_paths.end(),
+                                                      [](Path* p) { return p == nullptr; }),
+                                       agents[agent].task_paths.end());
+        agents[agent].path = Path();
+        vector<int> task_assignments = solution.getAgentGlobalTasks(agent);
+        vector<int> task_locations = instance.getTaskLocations(task_assignments);
+        agents[agent].path_planner->setGoalLocations(task_locations);
+        agents[agent].path_planner->compute_heuristics();
+    }
+
+    for (int task : planning_order) {
+        if (std::find(solution.neighbor.conflicted_tasks.begin(),
+                      solution.neighbor.conflicted_tasks.end(),
+                      task) != solution.neighbor.conflicted_tasks.end()) {
+            assert(solution.paths[task].empty());
+            int start_time = 0, agent = affected_agents[task],
+                task_position = global_to_local_task_id[task];
+            if (task_position != 0)
+                start_time = agents[agent].task_paths[task_position - 1]->end_time();
+            if (task_position != (int)solution.task_assignments[agent].size()) {
+                int next_task = solution.task_assignments[agent][task_position + 1];
+                ConstraintTable constraint_table(instance.num_of_cols, instance.map_size);
+                build_constraint_table(constraint_table, agent, next_task);
+                solution.paths[next_task] = agents[agent].path_planner->findPathSegment(
+                  constraint_table, start_time, task_position, 0);
+                agents[agent].task_paths[task_position] = &solution.paths[next_task];
+                // Once the path was found fix the begin times for subsequent tasks of the
+                // agent
+                for (int k = task_position + 1; k < (int)solution.task_assignments[agent].size();
+                     k++)
+                    agents[agent].task_paths[k]->begin_time =
+                      agents[agent].task_paths[k - 1]->end_time();
+            }
+        }
+    }
+
+    vector<int> agents_to_compute;
+    for (pair<int, int> task_agent : affected_agents)
+        agents_to_compute.push_back(task_agent.second);
+    joinPaths(agents_to_compute);
+
+    sum_of_costs = 0;
+    for (int i = 0; i < (int)agents.size(); i++) {
+        sum_of_costs += agents[i].path.end_time();
+    }
 }
 
 void
@@ -301,8 +315,8 @@ LNS::validateSolution(bool extract)
             task_position_b = solution.getLocalTaskIndex(agent_b, precedence_constraint.second);
         if (agents[agent_a].path.timestamps[task_position_a] >=
             agents[agent_b].path.timestamps[task_position_b]) {
-            PLOGE << "Temporal conflict between " << agent_a << " doing local task "
-                  << precedence_constraint.first << " and agent " << agent_b << " doing local task "
+            PLOGE << "Temporal conflict between " << agent_a << " doing task "
+                  << precedence_constraint.first << " and agent " << agent_b << " doing task "
                   << precedence_constraint.second << endl;
             result = false;
             if (!extract)
