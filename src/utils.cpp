@@ -70,7 +70,9 @@ greedy_task_assignment(const Instance* instance, Solution* solution)
 }
 
 bool
-topological_sort(const Instance* instance, Solution* solution, vector<int>& planning_order)
+topological_sort(const Instance* instance,
+                 vector<pair<int, int>>* precedence_constraints,
+                 vector<int>& planning_order)
 {
     planning_order.clear();
     vector<bool> closed(instance->getTasksNum(), false);
@@ -78,7 +80,7 @@ topological_sort(const Instance* instance, Solution* solution, vector<int>& plan
 
     vector<vector<int>> successors;
     successors.resize(instance->getTasksNum());
-    for (pair<int, int> precedence_constraint : solution->precedence_constraints)
+    for (pair<int, int> precedence_constraint : (*precedence_constraints))
         successors[precedence_constraint.first].push_back(precedence_constraint.second);
 
     for (int task = 0; task < instance->getTasksNum(); task++) {

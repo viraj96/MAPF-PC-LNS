@@ -21,9 +21,49 @@ struct Agent
     ~Agent() { delete path_planner; }
 };
 
+struct Utility
+{
+    int agent, task_position;
+    double value;
+    Utility(int agent, int task_position, double value)
+      : agent(agent)
+      , task_position(task_position)
+      , value(value)
+    {}
+
+    struct compare_node
+    {
+        bool operator()(const Utility& lhs, const Utility& rhs) const
+        {
+            return lhs.value >= rhs.value;
+        }
+    };
+};
+
+struct Regret
+{
+    int task, agent, task_position;
+    double value;
+    Regret(int task, int agent, int task_position, double value)
+      : task(task)
+      , agent(agent)
+      , task_position(task_position)
+      , value(value)
+    {}
+
+    struct compare_node
+    {
+        bool operator()(const Regret& lhs, const Regret& rhs) const
+        {
+            return lhs.value <= rhs.value;
+        }
+    };
+};
+
 struct Neighbor
 {
     set<int> conflicted_tasks;
+    pairing_heap<Regret, compare<Regret::compare_node>> regret_max_heap;
 };
 
 class Solution
@@ -118,6 +158,13 @@ class LNS
     bool validateSolution(bool extract = false);
     void joinPaths(vector<int> agents_to_compute = vector<int>());
     void build_constraint_table(ConstraintTable& constraint_table, int agent, int task);
+
+    void build_constraint_table(ConstraintTable& constraint_table,
+                                int task,
+                                int task_location,
+                                vector<Path>* paths,
+                                vector<vector<int>>* task_assignments,
+                                vector<pair<int, int>>* precedence_constraints);
 
     void printAgents() const
     {

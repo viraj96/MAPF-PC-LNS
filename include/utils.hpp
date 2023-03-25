@@ -9,4 +9,6 @@ void
 greedy_task_assignment(const Instance* instance, Solution* solution);
 
 bool
-topological_sort(const Instance* instance, Solution* solution, vector<int>& planning_order);
+topological_sort(const Instance* instance,
+                 vector<pair<int, int>>* precedence_constraints,
+                 vector<int>& planning_order);

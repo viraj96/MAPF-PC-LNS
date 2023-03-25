@@ -78,7 +78,7 @@ LNS::run()
 
     // find paths based on the task assignments
     vector<int> planning_order;
-    bool success = topological_sort(&instance, &solution, planning_order);
+    bool success = topological_sort(&instance, &solution.precedence_constraints, planning_order);
     if (!success) {
         PLOGE << "Topological sorting failed\n";
         return success;
@@ -146,10 +146,145 @@ LNS::run()
             previous_solution = solution;
 
             prepareNextIteration();
-            assert(validateSolution());
+            /* assert(validateSolution()); */
+
+            high_resolution_clock::time_point regret_time_start = Time::now();
 
             // Compute regret for each of the tasks that are in the conflicting set
             // Pick the best one and repeat the whole process above
+            for (int task : solution.neighbor.conflicted_tasks) {
+                pairing_heap<Utility, compare<Utility::compare_node>> service_times;
+                vector<int> previous_tasks = instance.getTaskDependencies()[task];
+                vector<pair<int, int>> precedence_constraints;
+                for (pair<int, int> pc : solution.precedence_constraints) {
+                    if (pc.first == task || pc.second == task ||
+                        (std::find(solution.neighbor.conflicted_tasks.begin(),
+                                   solution.neighbor.conflicted_tasks.end(),
+                                   pc.first) == solution.neighbor.conflicted_tasks.end() &&
+                         std::find(solution.neighbor.conflicted_tasks.begin(),
+                                   solution.neighbor.conflicted_tasks.end(),
+                                   pc.second) == solution.neighbor.conflicted_tasks.end()))
+                        precedence_constraints.push_back(pc);
+                }
+                /* if (task == 18) { */
+                /*     for (pair<int, int> pc : precedence_constraints) */
+                /*         cout << pc.first << ", " << pc.second << endl; */
+                /*     for (int t : solution.neighbor.conflicted_tasks) */
+                /*         cout << t << endl; */
+                /*     assert(false); */
+                /* } */
+                for (int i = 0; i < instance.getAgentNum(); i++) {
+                    PLOGD << "Trying agent: " << i << endl;
+                    int first_valid_position = 0;
+                    vector<int> agent_tasks = solution.getAgentGlobalTasks(i);
+                    for (int j = (int)agent_tasks.size() - 1; j >= 0; j--) {
+                        if (std::find(previous_tasks.begin(),
+                                      previous_tasks.end(),
+                                      agent_tasks[j]) != previous_tasks.end()) {
+                            first_valid_position = j + 1;
+                            break;
+                        }
+                    }
+                    for (int j = first_valid_position; j < (int)agent_tasks.size() + 1; j++) {
+                        int start_time = 0, previous_task = -1, next_task = -1;
+                        double path_size_change = 0;
+                        vector<Path> task_paths = solution.paths;
+                        vector<vector<int>> task_assignments = solution.task_assignments;
+                        vector<pair<int, int>> prec_constraints = precedence_constraints;
+                        if (j != 0 && j != (int)agent_tasks.size()) {
+                            start_time = task_paths[agent_tasks[j - 1]].end_time();
+                            previous_task = agent_tasks[j - 1];
+                            next_task = agent_tasks[j];
+                            path_size_change = (double)task_paths[next_task].size();
+                            task_paths[next_task] = Path();
+                            task_assignments[i].insert(task_assignments[i].begin() + j, task);
+                            prec_constraints.erase(
+                              std::remove_if(prec_constraints.begin(),
+                                             prec_constraints.end(),
+                                             [previous_task, next_task](pair<int, int> x) {
+                                                 return x.first == previous_task &&
+                                                        x.second == next_task;
+                                             }),
+                              prec_constraints.end());
+                            prec_constraints.push_back(make_pair(previous_task, task));
+                            prec_constraints.push_back(make_pair(task, next_task));
+                        } else if (j == 0) {
+                            next_task = agent_tasks[j];
+                            path_size_change = (double)task_paths[next_task].size();
+                            task_paths[next_task] = Path();
+                            task_assignments[i].insert(task_assignments[i].begin() + j, task);
+                            prec_constraints.push_back(make_pair(task, next_task));
+                        } else if (j == (int)agent_tasks.size()) {
+                            previous_task = agent_tasks[j - 1];
+                            start_time = task_paths[previous_task].end_time();
+                            task_assignments[i].push_back(task);
+                            prec_constraints.push_back(make_pair(previous_task, task));
+                        }
+
+                        vector<int> planning_order;
+                        bool valid = topological_sort(&instance, &prec_constraints, planning_order);
+                        if (!valid)
+                            continue;
+
+                        MultiLabelSpaceTimeAStar local_planner =
+                          MultiLabelSpaceTimeAStar(instance, i);
+                        vector<int> goal_locations = instance.getTaskLocations(task_assignments[i]);
+                        local_planner.setGoalLocations(goal_locations);
+                        local_planner.compute_heuristics();
+
+                        ConstraintTable constraint_table(instance.num_of_cols, instance.map_size);
+
+                        build_constraint_table(constraint_table,
+                                               task,
+                                               instance.getTaskLocations()[task],
+                                               &task_paths,
+                                               &task_assignments,
+                                               &prec_constraints);
+                        task_paths[task] =
+                          local_planner.findPathSegment(constraint_table, start_time, j, 0);
+
+                        if (next_task != -1) {
+                            start_time = task_paths[task].end_time();
+                            build_constraint_table(constraint_table,
+                                                   next_task,
+                                                   instance.getTaskLocations()[next_task],
+                                                   &task_paths,
+                                                   &task_assignments,
+                                                   &prec_constraints);
+                            task_paths[next_task] =
+                              local_planner.findPathSegment(constraint_table, start_time, j + 1, 0);
+                        }
+
+                        double value =
+                          sum_of_costs - path_size_change + (double)task_paths[task].size();
+                        if (next_task != -1)
+                            value += (double)task_paths[next_task].size();
+
+                        /* PLOGD << "Planned for conflicting task: " << task << endl; */
+                        /* PLOGD << "Utility was: " << value << endl; */
+                        Utility utility(i, j, value);
+                        service_times.push(utility);
+                    }
+                }
+
+                Utility best_utility = service_times.top();
+                service_times.pop();
+                Utility second_best_utility = service_times.top();
+                Regret regret(task,
+                              best_utility.agent,
+                              best_utility.task_position,
+                              second_best_utility.value - best_utility.value);
+                solution.neighbor.regret_max_heap.push(regret);
+            }
+
+            Regret best_regret = solution.neighbor.regret_max_heap.top();
+            PLOGD << best_regret.task << ", " << best_regret.agent << ", "
+                  << best_regret.task_position << ", " << best_regret.value << endl;
+
+            double regret_time_end = ((fsec)(Time::now() - regret_time_start)).count();
+            PLOGD << "Regret time = " << regret_time_end << endl;
+
+            assert(false);
         }
     }
 
@@ -183,7 +318,7 @@ LNS::prepareNextIteration()
     }
 
     vector<int> planning_order;
-    assert(topological_sort(&instance, &solution, planning_order));
+    assert(topological_sort(&instance, &solution.precedence_constraints, planning_order));
 
     for (pair<int, int> task_agent : affected_agents) {
         int agent = task_agent.second;
@@ -238,6 +373,62 @@ LNS::prepareNextIteration()
     for (int i = 0; i < (int)agents.size(); i++) {
         sum_of_costs += agents[i].path.end_time();
     }
+}
+
+void
+LNS::build_constraint_table(ConstraintTable& constraint_table,
+                            int task,
+                            int task_location,
+                            vector<Path>* paths,
+                            vector<vector<int>>* task_assignments,
+                            vector<pair<int, int>>* precedence_constraints)
+{
+    constraint_table.goal_location = task_location;
+
+    vector<vector<int>> ancestors;
+    ancestors.resize(instance.getTasksNum());
+    for (pair<int, int> precedence_constraint : (*precedence_constraints))
+        ancestors[precedence_constraint.second].push_back(precedence_constraint.first);
+
+    unordered_set<int> set_of_tasks_to_complete;
+    stack<int> q({ task });
+    while (!q.empty()) {
+        int current = q.top();
+        q.pop();
+        if (set_of_tasks_to_complete.find(current) != set_of_tasks_to_complete.end())
+            continue;
+        set_of_tasks_to_complete.insert(current);
+        for (int agent_task_ancestor : ancestors[current])
+            if (set_of_tasks_to_complete.find(agent_task_ancestor) ==
+                set_of_tasks_to_complete.end())
+                q.push(agent_task_ancestor);
+    }
+    set_of_tasks_to_complete.erase(task);
+
+    for (int id : set_of_tasks_to_complete) {
+        /* PLOGD << "Task id : " << id << endl; */
+        assert(!(*paths)[id].empty());
+        int task_position = -1, task_set_size = -1;
+        for (int i = 0; i < instance.getAgentNum(); i++) {
+            for (int j = 0; j < (int)(*task_assignments)[i].size(); j++) {
+                if ((*task_assignments)[i][j] == id) {
+                    task_position = j;
+                    task_set_size = (int)(*task_assignments)[i].size();
+                    break;
+                }
+            }
+        }
+        bool wait_at_goal = task_position == task_set_size - 1;
+        constraint_table.addPath((*paths)[id], wait_at_goal);
+    }
+
+    for (int agent_task_ancestor : ancestors[task]) {
+        assert(!(*paths)[agent_task_ancestor].empty());
+        constraint_table.length_min =
+          max(constraint_table.length_min, (*paths)[agent_task_ancestor].end_time() + 1);
+    }
+    constraint_table.latest_timestep =
+      max(constraint_table.latest_timestep, constraint_table.length_min);
 }
 
 void
