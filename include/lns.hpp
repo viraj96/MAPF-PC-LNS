@@ -168,7 +168,7 @@ class Solution
                        agents[agent].task_paths[i].begin_time);
                 for (int j = 1; j < (int)agents[agent].task_paths[i].size(); j++)
                     agents[agent].path.path.push_back(agents[agent].task_paths[i].at(j));
-                agents[agent].path.timestamps.push_back(agents[i].path.size() - 1);
+                agents[agent].path.timestamps.push_back(agents[agent].path.size() - 1);
             }
         }
     }
@@ -219,13 +219,13 @@ class LNS
       unordered_set<int>* previous_tasks,
       vector<pair<int, int>>* precedence_constraints,
       pairing_heap<Utility, compare<Utility::compare_node>>* service_times);
-    pair<bool, Utility> insertTask(int task,
-                                   int agent,
-                                   int task_position,
-                                   vector<Path>* task_paths,
-                                   vector<vector<int>>* task_assignments,
-                                   vector<pair<int, int>>* precedence_constraints,
-                                   bool commit = false);
+    Utility insertTask(int task,
+                       int agent,
+                       int task_position,
+                       vector<Path>* task_paths,
+                       vector<vector<int>>* task_assignments,
+                       vector<pair<int, int>>* precedence_constraints,
+                       bool commit = false);
 
     void printAgents() const
     {

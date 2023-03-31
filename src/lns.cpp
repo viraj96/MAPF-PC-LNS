@@ -403,14 +403,13 @@ LNS::computeRegretForTaskWithAgent(
         vector<Path> task_paths = solution.paths;
         vector<vector<int>> task_assignments = solution.task_assignments;
         vector<pair<int, int>> prec_constraints = *precedence_constraints;
-        pair<bool, Utility> success =
+        Utility utility =
           insertTask(task, agent, j, &task_paths, &task_assignments, &prec_constraints);
-        if (success.first)
-            service_times->push(success.second);
+        service_times->push(utility);
     }
 }
 
-pair<bool, Utility>
+Utility
 LNS::insertTask(int task,
                 int agent,
                 int task_position,
@@ -488,15 +487,6 @@ LNS::insertTask(int task,
             solution.agents[agent].task_paths.push_back(Path());
     }
 
-    // should not be needing this with the new computation of first valid position so check later
-    bool valid = true;
-    if (!commit) {
-        vector<int> planning_order;
-        valid = topological_sort(&instance, precedence_constraints, planning_order);
-        if (!valid)
-            return make_pair(valid, Utility());
-    }
-
     vector<int> goal_locations = instance.getTaskLocations(task_assignments_ref[agent]);
     ConstraintTable constraint_table(instance.num_of_cols, instance.map_size);
     if (!commit) {
@@ -555,24 +545,22 @@ LNS::insertTask(int task,
             value += (double)task_paths_ref[next_task].size();
 
         Utility utility(agent, task_position, value);
-        return make_pair(valid, utility);
+        return utility;
     } else
-        return make_pair(valid, Utility());
+        return Utility();
 }
 
 void
 LNS::commitBestRegretTask(Regret best_regret)
 {
 
-    pair<bool, Utility> success = insertTask(best_regret.task,
-                                             best_regret.agent,
-                                             best_regret.task_position,
-                                             &solution.paths,
-                                             &solution.task_assignments,
-                                             &solution.precedence_constraints,
-                                             true);
-    // The task should be inserted successfully otherwise something is wrong
-    assert(success.first);
+    insertTask(best_regret.task,
+               best_regret.agent,
+               best_regret.task_position,
+               &solution.paths,
+               &solution.task_assignments,
+               &solution.precedence_constraints,
+               true);
     solution.neighbor.conflicted_tasks.erase(best_regret.task);
 }
 
@@ -745,14 +733,14 @@ LNS::validateSolution(set<int>* conflicted_tasks)
                         for (int task_idx = 0; task_idx < solution.getAssignedTaskSize(agent_i);
                              task_idx++)
                             if (solution.agents[agent_i].path.timestamps[task_idx] > timestep) {
-                                solution.neighbor.conflicted_tasks.insert(
+                                conflicted_tasks->insert(
                                   solution.getAgentGlobalTasks(agent_i, task_idx));
                                 break;
                             }
                         for (int task_idx = 0; task_idx < solution.getAssignedTaskSize(agent_j);
                              task_idx++)
                             if (solution.agents[agent_j].path.timestamps[task_idx] > timestep) {
-                                solution.neighbor.conflicted_tasks.insert(
+                                conflicted_tasks->insert(
                                   solution.getAgentGlobalTasks(agent_j, task_idx));
                                 break;
                             }
@@ -892,6 +880,6 @@ LNS::printPaths() const
             if (j != solution.getAssignedTaskSize(i) - 1)
                 cout << " -> ";
         }
+        cout << endl;
     }
-    cout << endl;
 }
