@@ -142,6 +142,7 @@ LNS::run()
             // join the individual paths that were found for each agent
             for (int i = 0; i < instance.getAgentNum(); i++)
                 solution.agents[i].path = Path();
+
             vector<int> agents_to_compute(instance.getAgentNum());
             std::iota(agents_to_compute.begin(), agents_to_compute.end(), 0);
             solution.joinPaths(agents_to_compute);
@@ -161,6 +162,10 @@ LNS::run()
             // cost of the solution
             conflicted_tasks.clear();
             valid = validateSolution(&conflicted_tasks);
+
+            PLOGD << "Number of conflicts in old solution: "
+                  << previous_solution.neighbor.conflicted_tasks.size() << endl;
+            PLOGD << "Number of conflicts in new solution: " << conflicted_tasks.size() << endl;
 
             if (previous_solution.neighbor.conflicted_tasks.size() < conflicted_tasks.size()) {
                 // reject this solution
@@ -184,7 +189,7 @@ LNS::run()
             }
 
             // for debug only
-            assert(false);
+            /* assert(false); */
         }
     }
 
@@ -276,7 +281,7 @@ LNS::prepareNextIteration()
 
             if (task_position != 0)
                 start_time = solution.agents[agent].task_paths[task_position - 1].end_time();
-            assert(task_position < solution.getAssignedTaskSize(agent) - 1);
+            assert(task_position <= solution.getAssignedTaskSize(agent) - 1);
 
             ConstraintTable constraint_table(instance.num_of_cols, instance.map_size);
             build_constraint_table(constraint_table, task);
@@ -324,28 +329,59 @@ LNS::computeRegretForTask(int task)
     }
 
     // compute the set of tasks that are needed to complete before we can complete this task
+    vector<int> successors;
     vector<vector<int>> ancestors;
     ancestors.resize(instance.getTasksNum());
-    for (pair<int, int> precedence_constraint : precedence_constraints)
+    for (pair<int, int> precedence_constraint : precedence_constraints) {
+        if (precedence_constraint.first == task)
+            successors.push_back(precedence_constraint.second);
         ancestors[precedence_constraint.second].push_back(precedence_constraint.first);
+    }
 
-    unordered_set<int> previous_tasks;
     stack<int> q({ task });
+    unordered_set<int> previous_tasks;
+    int earliest_timestep = 0, latest_timestep = INT_MAX;
+    PLOGD << "Finding earliest timestep for task " << task << endl;
     while (!q.empty()) {
         int current = q.top();
         q.pop();
         if (previous_tasks.find(current) != previous_tasks.end())
             continue;
         previous_tasks.insert(current);
+        if (current != task && !solution.paths[current].empty()) {
+            PLOGD << "current = " << current << endl;
+            int agent = solution.getAgentWithTask(current);
+            int task_idx = solution.getLocalTaskIndex(agent, current);
+            if (earliest_timestep < solution.agents[agent].path.timestamps[task_idx]) {
+                PLOGD << "Going to update earliest timestep from " << earliest_timestep << endl;
+                earliest_timestep = solution.agents[agent].path.timestamps[task_idx];
+                PLOGD << "New earliest timestep " << earliest_timestep << endl;
+                PLOGD << "Came from " << agent << ", " << current << " at " << task_idx << endl;
+            }
+        }
         for (int agent_task_ancestor : ancestors[current])
             if (previous_tasks.find(agent_task_ancestor) == previous_tasks.end())
                 q.push(agent_task_ancestor);
     }
     previous_tasks.erase(task);
 
+    PLOGD << "Finding latest timestep for task " << task << endl;
+    for (int succ : successors) {
+        if (solution.paths[succ].empty())
+            continue;
+        int agent = solution.getAgentWithTask(succ);
+        int task_idx = solution.getLocalTaskIndex(agent, succ);
+        if (latest_timestep > solution.agents[agent].path.timestamps[task_idx]) {
+            PLOGD << "Going to update latest timestep from " << latest_timestep << endl;
+            latest_timestep = solution.agents[agent].path.timestamps[task_idx];
+            PLOGD << "New latest timestep " << latest_timestep << endl;
+            PLOGD << "Came from " << agent << ", " << succ << " at " << task_idx << endl;
+        }
+    }
+
     for (int agent = 0; agent < instance.getAgentNum(); agent++)
         computeRegretForTaskWithAgent(
-          task, agent, &previous_tasks, &precedence_constraints, &service_times);
+          task, agent, earliest_timestep, latest_timestep, &precedence_constraints, &service_times);
 
     Utility best_utility = service_times.top();
     service_times.pop();
@@ -361,23 +397,33 @@ void
 LNS::computeRegretForTaskWithAgent(
   int task,
   int agent,
-  unordered_set<int>* previous_tasks,
+  int earliest_timestep,
+  int latest_timestep,
   vector<pair<int, int>>* precedence_constraints,
   pairing_heap<Utility, compare<Utility::compare_node>>* service_times)
 {
 
     // compute the first position along the agent's task assignments where we can insert this task
-    int first_valid_position = 0;
+    int first_valid_position = 0, last_valid_position = solution.getAssignedTaskSize(agent) + 1;
     vector<int> agent_tasks = solution.getAgentGlobalTasks(agent);
     for (int j = solution.getAssignedTaskSize(agent) - 1; j >= 0; j--) {
-        if (std::find(previous_tasks->begin(), previous_tasks->end(), agent_tasks[j]) !=
-            previous_tasks->end()) {
+        if (solution.agents[agent].path.timestamps[j] <= earliest_timestep) {
             first_valid_position = j + 1;
             break;
         }
     }
+    // compute the last position along the agent's task assignment where we can insert this task
+    for (int j = 1; j < solution.getAssignedTaskSize(agent); j++) {
+        if (solution.agents[agent].path.timestamps[j] >= latest_timestep) {
+            last_valid_position = j - 1;
+            break;
+        }
+    }
 
-    for (int j = first_valid_position; j < solution.getAssignedTaskSize(agent) + 1; j++) {
+    assert(first_valid_position >= 0);
+    assert(last_valid_position <= solution.getAssignedTaskSize(agent) + 1);
+
+    for (int j = first_valid_position; j < last_valid_position; j++) {
 
         // compute the distance estimate it would take to finish the insertion
         int distance = 0;
@@ -554,6 +600,8 @@ void
 LNS::commitBestRegretTask(Regret best_regret)
 {
 
+    PLOGD << "Commiting for task " << best_regret.task << " to agent " << best_regret.agent
+          << " with regret = " << best_regret.value << endl;
     insertTask(best_regret.task,
                best_regret.agent,
                best_regret.task_position,

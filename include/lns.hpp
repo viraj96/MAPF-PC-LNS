@@ -216,7 +216,8 @@ class LNS
     void computeRegretForTaskWithAgent(
       int task,
       int agent,
-      unordered_set<int>* previous_tasks,
+      int earliest_timestep,
+      int latest_timestep,
       vector<pair<int, int>>* precedence_constraints,
       pairing_heap<Utility, compare<Utility::compare_node>>* service_times);
     Utility insertTask(int task,
