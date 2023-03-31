@@ -3,6 +3,7 @@
 #include "common.hpp"
 #include "constrainttable.hpp"
 #include "mlastar.hpp"
+#include <limits>
 #include <numeric>
 #include <plog/Log.h>
 
@@ -10,7 +11,7 @@ struct Agent
 {
     int id;
     Path path;
-    vector<Path*> task_paths;
+    vector<Path> task_paths;
     SingleAgentSolver* path_planner = nullptr;
 
     Agent(const Instance& instance, int id)
@@ -25,6 +26,14 @@ struct Utility
 {
     int agent, task_position;
     double value;
+
+    Utility()
+    {
+        agent = -1;
+        task_position = -1;
+        value = std::numeric_limits<double>::max();
+    }
+
     Utility(int agent, int task_position, double value)
       : agent(agent)
       , task_position(task_position)
@@ -44,6 +53,7 @@ struct Regret
 {
     int task, agent, task_position;
     double value;
+
     Regret(int task, int agent, int task_position, double value)
       : task(task)
       , agent(agent)
@@ -63,14 +73,17 @@ struct Regret
 struct Neighbor
 {
     set<int> conflicted_tasks;
+    map<int, int> conflicted_tasks_path_size;
     pairing_heap<Regret, compare<Regret::compare_node>> regret_max_heap;
 };
 
 class Solution
 {
   public:
+    int sum_of_costs;
     Neighbor neighbor;
     vector<Path> paths;
+    vector<Agent> agents;
     int num_of_agents, num_of_tasks;
     vector<vector<int>> task_assignments;
     vector<pair<int, int>> precedence_constraints;
@@ -80,6 +93,10 @@ class Solution
         num_of_tasks = instance.getTasksNum();
         num_of_agents = instance.getAgentNum();
         task_assignments.resize(num_of_agents);
+
+        agents.reserve(num_of_agents);
+        for (int i = 0; i < num_of_agents; i++)
+            agents.emplace_back(instance, i);
     }
 
     int getAgentWithTask(int global_task) const
@@ -88,11 +105,27 @@ class Solution
             for (int j = 0; j < (int)task_assignments[i].size(); j++)
                 if (task_assignments[i][j] == global_task)
                     return i;
-        return -1;
+        assert(false);
     }
 
-    inline void assignTaskToAgent(int agent, int task) { task_assignments[agent].push_back(task); }
+    int getLocalTaskIndex(int agent, int global_task) const
+    {
+        for (int i = 0; i < (int)task_assignments[agent].size(); i++) {
+            if (task_assignments[agent][i] == global_task)
+                return i;
+        }
+        assert(false);
+    }
+
     inline vector<int> getAgentGlobalTasks(int agent) const { return task_assignments[agent]; }
+    inline int getAssignedTaskSize(int agent) const { return (int)task_assignments[agent].size(); }
+    inline void assignTaskToAgent(int agent, int task) { task_assignments[agent].push_back(task); }
+
+    inline void insertPrecedenceConstraint(int task_a, int task_b)
+    {
+        precedence_constraints.push_back(make_pair(task_a, task_b));
+    }
+
     void clearInterAgentPrecedenceConstraint(int task)
     {
         int agent = getAgentWithTask(task), task_position = getLocalTaskIndex(agent, task);
@@ -114,17 +147,41 @@ class Solution
         if (previous_task != -1 && next_task != -1)
             insertPrecedenceConstraint(previous_task, next_task);
     }
-    inline void insertPrecedenceConstraint(int task_a, int task_b)
+
+    void joinPaths(vector<int> agents_to_compute)
     {
-        precedence_constraints.push_back(make_pair(task_a, task_b));
-    }
-    int getLocalTaskIndex(int agent, int global_task) const
-    {
-        for (int i = 0; i < (int)task_assignments[agent].size(); i++) {
-            if (task_assignments[agent][i] == global_task)
-                return i;
+        for (int agent : agents_to_compute) {
+
+            assert(getAssignedTaskSize(agent) ==
+                   (int)agents[agent].path_planner->goal_locations.size());
+            assert(getAssignedTaskSize(agent) == (int)agents[agent].task_paths.size());
+
+            for (int i = 0; i < getAssignedTaskSize(agent); i++) {
+                if (i == 0)
+                    agents[agent].path.path.push_back(agents[agent].task_paths[i].front());
+                assert((int)agents[agent].path.size() - 1 ==
+                       agents[agent].task_paths[i].begin_time);
+            }
         }
-        return -1;
+
+        for (int i = 0; i < num_of_agents; i++) {
+            if (std::find(agents_to_compute.begin(), agents_to_compute.end(), i) !=
+                agents_to_compute.end()) {
+                for (int j = 0; j < (int)neighbor.agents[i].path_planner->goal_locations.size();
+                     j++) {
+                    if (j == 0)
+                        neighbor.agents[i].path.path.push_back(
+                          neighbor.agents[i].task_paths[j].front());
+                    assert((int)neighbor.agents[i].path.size() - 1 ==
+                           neighbor.agents[i].task_paths[j].begin_time);
+                    for (int k = 1; k < (int)neighbor.agents[i].task_paths[j].size(); k++)
+                        neighbor.agents[i].path.path.push_back(
+                          neighbor.agents[i].task_paths[j].at(k));
+                    neighbor.agents[i].path.timestamps.push_back(neighbor.agents[i].path.size() -
+                                                                 1);
+                }
+            }
+        }
     }
 };
 
@@ -134,30 +191,28 @@ class LNS
     int num_of_iterations;
 
   protected:
-    bool ALNS = false;
+    int neighbor_size;
     const Instance& instance;
-    vector<Agent> agents;
-    vector<double> destroy_weights;
-    int neighbor_size, selected_neighbor;
     Solution solution, previous_solution;
     high_resolution_clock::time_point planner_start_time;
-    double time_limit, replan_time_limit, decay_factor = -1, reaction_factor = -1,
-                                          preprocessing_time = 0, initial_solution_runtime = 0;
+    double time_limit, preprocessing_time = 0, initial_solution_runtime = 0;
 
   public:
-    vector<Path> initial_paths, paths;
+    double runtime = 0;
+    vector<Path> initial_paths;
     list<IterationStats> iteration_stats;
     int num_of_failures = 0, sum_of_costs = 0;
-    double runtime = 0, average_group_size = -1;
 
     LNS(int num_of_iterations, const Instance& instance, int neighbor_size, double time_limit);
+
     inline Instance getInstance() { return instance; }
+
     bool run();
-    void printPaths() const;
+    void printPaths(bool debug = false) const;
     void prepareNextIteration();
-    bool validateSolution(bool extract = false);
+    bool validateSolution(set<int>* conflicted_tasks = nullptr);
     void joinPaths(vector<int> agents_to_compute = vector<int>());
-    void build_constraint_table(ConstraintTable& constraint_table, int agent, int task);
+    void build_constraint_table(ConstraintTable& constraint_table, int task);
 
     void build_constraint_table(ConstraintTable& constraint_table,
                                 int task,
@@ -165,6 +220,23 @@ class LNS
                                 vector<Path>* paths,
                                 vector<vector<int>>* task_assignments,
                                 vector<pair<int, int>>* precedence_constraints);
+
+    void computeRegret();
+    void regretBasedReinsertion();
+    void computeRegretForTask(int task);
+    void commitBestRegretTask(Regret best_regret);
+    void computeRegretForTaskWithAgent(
+      int task,
+      int agent,
+      vector<pair<int, int>>* precedence_constraints,
+      pairing_heap<Utility, compare<Utility::compare_node>>* service_times);
+    pair<bool, Utility> insertTask(int task,
+                                   int agent,
+                                   int task_position,
+                                   vector<Path>* task_paths,
+                                   vector<vector<int>>* task_assignments,
+                                   vector<pair<int, int>>* precedence_constraints,
+                                   bool commit = false);
 
     void printAgents() const
     {
