@@ -211,6 +211,7 @@ class LNS
 
     void computeRegret();
     void regretBasedReinsertion();
+    void computeRegretForMetaTask(deque<int> meta_task);
     void computeRegretForTask(int task);
     void commitBestRegretTask(Regret best_regret);
     void computeRegretForTaskWithAgent(
