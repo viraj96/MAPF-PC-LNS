@@ -33,6 +33,7 @@ class Instance
              int num_of_agents = 0,
              int num_of_tasks = 0);
 
+    inline int getTaskLocations(int task) const { return task_locations[task]; }
     vector<int> getTaskLocations(vector<int> tasks) const
     {
         vector<int> task_locs(tasks.size(), 0);

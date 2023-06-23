@@ -8,7 +8,9 @@
 #include <iomanip>  // std::setprecision
 #include <iostream> // std::cout, std::fixed
 #include <list>
+#include <map>
 #include <set>
+#include <deque>
 #include <stack>
 #include <tuple>
 #include <vector>
@@ -20,6 +22,7 @@ using boost::heap::pairing_heap;
 using std::cerr;
 using std::clock;
 using std::cout;
+using std::deque;
 using std::distance;
 using std::endl;
 using std::get;
