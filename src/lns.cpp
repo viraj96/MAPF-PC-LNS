@@ -44,8 +44,10 @@ LNS::run()
     // inter agent precedence constraints - this should remain same across all
     for (int task = 0; task < instance.getTasksNum(); task++) {
         vector<int> previous_tasks = instance.getTaskDependencies()[task];
-        for (int pt : previous_tasks)
+        for (int pt : previous_tasks){
             solution.insertPrecedenceConstraint(pt, task);
+            solution.insert_ref_global_list(pt, task); // populating ref global list
+        }
     }
 
     // find paths based on the task assignments
@@ -551,6 +553,23 @@ LNS::insertTask(int task,
 
         if (next_task != -1) {
             start_time = task_paths_ref[task].end_time();
+
+            for(auto it = solution.ref_global_list.begin(); it != solution.ref_global_list.end(); it++)
+            {
+                if(it->first == next_task)
+                {
+                    for(auto it2 = it->second.begin(); it2 != it->second.end(); it2++)
+                    {
+                        int child_task_agent = solution.getAgentWithTask(*it2);
+                        int child_task_idx = solution.getLocalTaskIndex(child_task_agent, *it2);
+                        int child_start_time = solution.agents[child_task_agent].path.timestamps[child_task_idx];
+                        if (child_start_time < start_time)
+                        {
+                            PLOGI << "DISCREPANCY WITH TEMPORAL CONSTRAINTS: Task = " << next_task << " Future Task = " << *it2;
+                        }
+                    }
+                }
+            }
 
             build_constraint_table(constraint_table,
                                    next_task,

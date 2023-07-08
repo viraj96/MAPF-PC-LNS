@@ -87,6 +87,7 @@ class Solution
     int num_of_agents, num_of_tasks;
     vector<vector<int>> task_assignments;
     vector<pair<int, int>> precedence_constraints;
+    unordered_map<int, vector<int>> ref_global_list; // adding a dict to reference global temporal constraints
 
     Solution(const Instance& instance)
     {
@@ -129,6 +130,10 @@ class Solution
     inline void insertPrecedenceConstraint(int task_a, int task_b)
     {
         precedence_constraints.push_back(make_pair(task_a, task_b));
+    }
+    inline void insert_ref_global_list(int task_1, int task_2)
+    {
+        ref_global_list[task_1].push_back(task_2);
     }
 
     void clearIntraAgentPrecedenceConstraint(int task)
