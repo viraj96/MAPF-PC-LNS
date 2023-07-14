@@ -554,23 +554,6 @@ LNS::insertTask(int task,
         if (next_task != -1) {
             start_time = task_paths_ref[task].end_time();
 
-            for(auto it = solution.ref_global_list.begin(); it != solution.ref_global_list.end(); it++)
-            {
-                if(it->first == next_task)
-                {
-                    for(auto it2 = it->second.begin(); it2 != it->second.end(); it2++)
-                    {
-                        int child_task_agent = solution.getAgentWithTask(*it2);
-                        int child_task_idx = solution.getLocalTaskIndex(child_task_agent, *it2);
-                        int child_start_time = solution.agents[child_task_agent].path.timestamps[child_task_idx];
-                        if (child_start_time < start_time)
-                        {
-                            PLOGI << "DISCREPANCY WITH TEMPORAL CONSTRAINTS: Task = " << next_task << " Future Task = " << *it2;
-                        }
-                    }
-                }
-            }
-
             build_constraint_table(constraint_table,
                                    next_task,
                                    instance.getTaskLocations()[next_task],
@@ -608,6 +591,46 @@ LNS::insertTask(int task,
         double value = -path_size_change + (double)task_paths_ref[task].size();
         if (next_task != -1)
             value += (double)task_paths_ref[next_task].size();
+
+        // unordered_map<int, vector<int>> tasks_depen;
+        // tasks_depen = instance.getTaskDependencies(); // this is giving wrong tasks dependencies
+        // set<int> local_conflict_check = solution.neighbor.conflicted_tasks;
+        // for(pair<int, vector<int>> dependency : instance.getTaskDependencies())
+        // {
+        //     // int child_task = distance(tasks_depen.begin(), it);
+        //     int child_task = dependency.first;
+        //     if (local_conflict_check.find(child_task) == local_conflict_check.end())
+        //     {
+        //         // int child_agent = solution.getAgentWithTask(child_task);
+        //         // int child_index = solution.getLocalTaskIndex(child_agent, child_task);
+        //         // int child_timestamp = solution.agents[child_agent].task_paths[child_index].end_time();
+        //         int child_timestamp = task_paths_ref[child_task].end_time();
+        //         vector<int> child_ancestors = dependency.second;
+        //         for(int ancestor_task: child_ancestors)
+        //         {
+        //             if (local_conflict_check.find(ancestor_task) == local_conflict_check.end())
+        //             {
+        //                 // int ancestor_agent = solution.getAgentWithTask(ancestor_task);
+        //                 // int ancestor_index = solution.getLocalTaskIndex(ancestor_agent, ancestor_task);
+        //                 // int ancestor_timestamp = solution.agents[ancestor_agent].task_paths[ancestor_index].end_time();
+        //                 int ancestor_timestamp = task_paths_ref[ancestor_task].end_time();
+        //                 if (child_timestamp <= ancestor_timestamp)
+        //                 {
+        //                     PLOGI <<" Child task = " << child_task <<" Child end timestamp = "<< child_timestamp;
+        //                     PLOGI <<" Ancestor task = "<< ancestor_task <<" Ancestor end timestamp = "<< ancestor_timestamp;                            
+        //                     PLOGI <<" Regret for Task=" << task << " in Agent = "<< agent << " by pushing local task= " << next_task << " out";
+        //                     PLOGI <<" Found a TEMPORAL VIOLATION PRE commit, child task = " << child_task << " ancestor task = " << ancestor_task;
+        //                     // value = INT_MIN;
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+        // int Tcosts = 0;
+        // for (int taskz = 0; taskz < instance.getTasksNum(); taskz++) {
+        //     Tcosts += (task_paths_ref[taskz].end_time() - task_paths_ref[taskz].begin_time);
+        // }
+        // PLOGI << " [PRE COMMIT] total cost = " << Tcosts;
 
         Utility utility(agent, task_position, value);
         return utility;
