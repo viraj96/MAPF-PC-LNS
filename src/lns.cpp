@@ -44,10 +44,8 @@ LNS::run()
     // inter agent precedence constraints - this should remain same across all
     for (int task = 0; task < instance.getTasksNum(); task++) {
         vector<int> previous_tasks = instance.getTaskDependencies()[task];
-        for (int pt : previous_tasks){
+        for (int pt : previous_tasks)
             solution.insertPrecedenceConstraint(pt, task);
-            solution.insert_ref_global_list(pt, task); // populating ref global list
-        }
     }
 
     // find paths based on the task assignments
