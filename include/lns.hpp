@@ -130,10 +130,6 @@ class Solution
     {
         precedence_constraints.push_back(make_pair(task_a, task_b));
     }
-    inline void insert_ref_global_list(int task_1, int task_2)
-    {
-        ref_global_list[task_1].push_back(task_2);
-    }
 
     void clearIntraAgentPrecedenceConstraint(int task)
     {
