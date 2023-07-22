@@ -24,7 +24,7 @@ struct Agent
 
 struct Utility
 {
-    int agent, task_position;
+    int agent, task_position, task; // adding task capability since not using Regret
     double value;
 
     Utility()
@@ -32,11 +32,13 @@ struct Utility
         agent = -1;
         task_position = -1;
         value = std::numeric_limits<double>::max();
+        task = -1;
     }
 
-    Utility(int agent, int task_position, double value)
+    Utility(int agent, int task_position, int task, double value) // adding task capability
       : agent(agent)
       , task_position(task_position)
+      , task(task) // appending constructor for task
       , value(value)
     {}
 
@@ -77,11 +79,37 @@ struct Neighbor
     pairing_heap<Regret, compare<Regret::compare_node>> regret_max_heap;
 };
 
+struct Combination
+{
+    vector<Utility> combo_bucket; // storing all the utility from each task
+    int rank_sum = 0;
+
+    inline bool operator< (const Combination &ob) const // functor to arrange combinations
+    {
+        return (rank_sum <= ob.rank_sum);
+    }
+};
+struct Matching
+{
+    vector<Combination> combination_list; // store all the combinations
+    vector<pair<int, vector<Utility>>> all_services; // store all the service times
+    vector<int> task_order; // to cross check task order
+
+    void clearall() // before starting clear all vectors
+    {
+        task_order.clear();
+        combination_list.clear();
+        all_services.clear();
+    }
+};
+
+
 class Solution
 {
   public:
     int sum_of_costs;
     Neighbor neighbor;
+    Matching combo_prog; // adding matching to be a part of solution class
     vector<Path> paths;
     vector<Agent> agents;
     int num_of_agents, num_of_tasks;
@@ -209,7 +237,7 @@ class LNS
                                 vector<vector<int>>* task_assignments,
                                 vector<pair<int, int>>* precedence_constraints);
 
-    void computeRegret();
+    void computeRegret(Solution* solution);
     void regretBasedReinsertion();
     void computeRegretForMetaTask(deque<int> meta_task);
     void computeRegretForTask(int task);
@@ -220,7 +248,8 @@ class LNS
       int earliest_timestep,
       int latest_timestep,
       vector<pair<int, int>>* precedence_constraints,
-      pairing_heap<Utility, compare<Utility::compare_node>>* service_times);
+    //   pairing_heap<Utility, compare<Utility::compare_node>>* service_times);
+      vector<Utility>* service_times); // since we changed the need for checking all service times
     Utility insertTask(int task,
                        int agent,
                        int task_position,
@@ -241,4 +270,138 @@ class LNS
             }
         }
     }
+
+    // add the recursive combo builder function here
+    vector<Combination> recursive_combo_builder(int index, vector<pair<int, vector<Utility>>> tasks_agents, Solution* solution)
+    {
+        int vec_size = tasks_agents.size();
+        if ((index+1) == (vec_size-1)) // compare both index and task
+        {
+            assert(solution->combo_prog.task_order[index+1] == tasks_agents[index+1].first); // for debugging
+            vector<Combination> combo_list;
+            vector<Utility> service_time;
+            service_time = tasks_agents[index+1].second; // the vector
+            for(Utility elem : service_time)
+            {
+                Combination combo;
+                combo.combo_bucket.push_back(elem);
+                combo.rank_sum += elem.value;
+                combo_list.push_back(combo);
+            }
+            return combo_list;
+        }
+        else
+        {
+            assert((index+1) < vec_size); // just ensuring that logic is not wrong
+            assert(solution->combo_prog.task_order[index+1] == tasks_agents[index+1].first); // for debugging
+            vector<Combination> combo_list;
+            vector<Utility> service_time;
+            service_time = tasks_agents[index+1].second;
+            // loop over service times for consecutive conflicted tasks while recursively calling the function
+            for(Utility elem : service_time)
+            {
+                vector<Combination> child_combo_list;
+                child_combo_list = recursive_combo_builder(index+1, tasks_agents, solution);
+                for(Combination c : child_combo_list)
+                {
+                    c.combo_bucket.push_back(elem);
+                    c.rank_sum +=  elem.value;
+                    combo_list.push_back(c);
+                }
+            }
+            return combo_list;
+        }
+    }
+
+    // adding the program function
+    void ComboRunProgram(Solution* solution)
+    {
+        vector<Utility> first_task = solution->combo_prog.all_services[0].second;
+        if(solution->combo_prog.all_services.size() > 1)
+        {
+            for( Utility s : first_task)
+            {
+                // start the recursion loop
+                int index = 0; // will this help or should I do something else?
+                vector<Combination> combo_list;
+                combo_list = recursive_combo_builder(index, solution->combo_prog.all_services, solution);
+                // loop over all service times for first task, order doesn't matter
+                for(Combination c: combo_list)
+                {
+                    c.combo_bucket.push_back(s);;
+                    c.rank_sum += s.value;
+                    solution->combo_prog.combination_list.push_back(c); // storing the combination in big combination list
+                }
+            }
+        }
+        else // when there is only one conflicted task
+        {
+            for( Utility s : first_task)
+            {
+                Combination c;
+                c.combo_bucket.push_back(s);
+                c.rank_sum = s.value;
+                solution->combo_prog.combination_list.push_back(c); 
+            }
+        }
+        // ordering combinations based on the total value of the sum of each service time in the combination for all conflicted tasks
+        std::sort(solution->combo_prog.combination_list.begin(), solution->combo_prog.combination_list.end());
+    }
+
+    bool ComboTemporalChecker(const Instance* instance, Solution* solution)
+    {
+        unordered_map<int, vector<int>> tasks_depen;
+        tasks_depen = instance->getTaskDependencies(); // this is giving wrong tasks dependencies
+        set<int> local_conflict_check = solution->neighbor.conflicted_tasks;
+        for(pair<int, vector<int>> dependency : instance->getTaskDependencies())
+        {
+            // int child_task = distance(tasks_depen.begin(), it);
+            int child_task = dependency.first;
+            if (local_conflict_check.find(child_task) == local_conflict_check.end())
+            {
+                int child_agent = solution->getAgentWithTask(child_task);
+                int child_index = solution->getLocalTaskIndex(child_agent, child_task);
+                int child_timestamp = solution->agents[child_agent].task_paths[child_index].end_time();
+                vector<int> child_ancestors = dependency.second;
+                for(int ancestor_task: child_ancestors)
+                {
+                    if (local_conflict_check.find(ancestor_task) == local_conflict_check.end())
+                    {
+                        int ancestor_agent = solution->getAgentWithTask(ancestor_task);
+                        int ancestor_index = solution->getLocalTaskIndex(ancestor_agent, ancestor_task);
+                        int ancestor_timestamp = solution->agents[ancestor_agent].task_paths[ancestor_index].end_time();
+                        if (child_timestamp <= ancestor_timestamp)
+                        {
+                            PLOGI <<" Child task = " << child_task <<" Child end timestamp = "<< child_timestamp;
+                            PLOGI <<" Ancestor task = "<< ancestor_task <<" Ancestor end timestamp = "<< ancestor_timestamp;
+                            // PLOGI <<" Regret for Task=" << task << " in Agent = "<< agent << " by pushing local task= " << next_task << " out";
+                            PLOGI <<" Found a TEMPORAL VIOLATION commit phase, child task = " << child_task << " ancestor task = " << ancestor_task;
+                            // value = INT_MIN;
+                            return true; // temporal issue found so move on to next task
+                        }
+                    }
+                }
+            }
+        }
+        return false; // means everything is okay and time for cost check
+    }
+
+
+    bool ComboCostChecker(const Instance* instance, Solution* solution, Solution* prev_solution)
+    {
+        int Tcosts = 0;
+        for (int taskz = 0; taskz < instance->getTasksNum(); taskz++) {
+            Tcosts += (solution->paths[taskz].end_time() - solution->paths[taskz].begin_time);
+        }
+        PLOGI << " Combination total cost = " << Tcosts;
+        if (prev_solution->sum_of_costs < Tcosts)
+        {
+            PLOGI << "Combination cost is higher, cannot use!" << endl;
+            return true;
+        }
+        else
+        {
+            return false; // means we have a lower cost solution
+        }
+    }    
 };

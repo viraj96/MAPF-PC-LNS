@@ -132,12 +132,15 @@ LNS::run()
 
             // Compute regret for each of the tasks that are in the conflicting set
             // Pick the best one and repeat the whole process aboe
-            while (!solution.neighbor.conflicted_tasks.empty()) {
-                computeRegret();
-                Regret best_regret = solution.neighbor.regret_max_heap.top();
-                // Use the best regret task and insert it in its correct location
-                commitBestRegretTask(best_regret);
-            }
+            // while (!solution.neighbor.conflicted_tasks.empty()) {
+            //     computeRegret(); 
+            //     Regret best_regret = solution.neighbor.regret_max_heap.top();
+            //     // Use the best regret task and insert it in its correct location
+            //     commitBestRegretTask(best_regret);
+            // }
+            computeRegret(&solution); // changed to have an argument to be able to compute cost early on
+            solution.combo_prog.clearall();
+            // solution.save_paths.clearall();
 
             // join the individual paths that were found for each agent
             for (int i = 0; i < instance.getAgentNum(); i++)
@@ -303,18 +306,89 @@ LNS::prepareNextIteration()
 }
 
 void
-LNS::computeRegret()
+LNS::computeRegret(Solution* solution)
 {
-    solution.neighbor.regret_max_heap.clear();
-    for (int task : solution.neighbor.conflicted_tasks)
+
+    // solution.neighbor.regret_max_heap.clear();
+    for (int task : solution->neighbor.conflicted_tasks)
         computeRegretForTask(task);
+    // this is now populating matching's all_services vector
+
+    ComboRunProgram(solution); // now we should have a sorted combo_list
+    assert(!solution->combo_prog.combination_list.empty()); // if we have a conflicted task, we should have combinations in here
+    // next we want to move through the combination in step by step process
+
+    for(auto it = solution->combo_prog.combination_list.begin(); it != solution->combo_prog.combination_list.end(); it++)
+    {
+
+        int ind = distance(solution->combo_prog.combination_list.begin(), it);
+        Combination current_combo = solution->combo_prog.combination_list[ind];
+        for(Utility elem : current_combo.combo_bucket)
+        {
+            // get commit back from inserTask
+            insertTask(elem.task,
+               elem.agent,
+               elem.task_position,
+               &solution->paths,
+               &solution->task_assignments,
+               &solution->precedence_constraints,
+               true);
+
+        }
+        // if one exists move to next loop, reset solution path for affected agents, we also look for total cost
+        // cause it will put us in an infinite loop again
+        
+
+        // next check the resulting for temporal conflicts
+        bool temporal_flag = ComboTemporalChecker(&instance, solution);
+        if (temporal_flag)
+        {
+            // erase paths and reset things here
+            // TODO
+
+            for (int i = 0; i < instance.getAgentNum(); i++)
+                solution->agents[i].path = Path();
+
+            vector<int> agents_to_compute(instance.getAgentNum()); // joining the combination's paths not previous solution!!
+            std::iota(agents_to_compute.begin(), agents_to_compute.end(), 0);
+            solution->joinPaths(agents_to_compute);
+            prepareNextIteration();
+            continue;
+        }
+        bool cost_flag = ComboCostChecker(&instance, solution, &previous_solution);
+        if(cost_flag)
+        {
+            // cannot use the solution erase paths and reset things
+            // todo
+
+            // join the individual paths that were found for each agent
+            for (int i = 0; i < instance.getAgentNum(); i++)
+                solution->agents[i].path = Path();
+
+            vector<int> agents_to_compute(instance.getAgentNum()); // joining the combination's paths not previous solution!!
+            std::iota(agents_to_compute.begin(), agents_to_compute.end(), 0);
+            solution->joinPaths(agents_to_compute);
+            prepareNextIteration();         
+            continue;
+        }
+        else
+        {
+            // if not then we exit the loop and move on
+            // for (int agent = 0; agent < instance.getAgentNum(); agent++)
+            //     delete checkersoln.agents[agent].path_planner;
+            break; // does this break the for loop?
+        }
+
+    }
+
 }
 
 void
 LNS::computeRegretForTask(int task)
 {
 
-    pairing_heap<Utility, compare<Utility::compare_node>> service_times;
+    // pairing_heap<Utility, compare<Utility::compare_node>> service_times;
+    vector<Utility> service_times; // changing to a vector so its easier to use with new format. SIDDHANT TANDON
 
     // Find the precedence constraints involving the task or any other task that is not in the
     // conflicting set
@@ -383,14 +457,17 @@ LNS::computeRegretForTask(int task)
         computeRegretForTaskWithAgent(
           task, agent, earliest_timestep, latest_timestep, &precedence_constraints, &service_times);
 
-    Utility best_utility = service_times.top();
-    service_times.pop();
-    Utility second_best_utility = service_times.top();
-    Regret regret(task,
-                  best_utility.agent,
-                  best_utility.task_position,
-                  second_best_utility.value - best_utility.value);
-    solution.neighbor.regret_max_heap.push(regret);
+    // Utility best_utility = service_times.top();
+    // service_times.pop();
+    // Utility second_best_utility = service_times.top();
+    // Regret regret(task,
+    //               best_utility.agent,
+    //               best_utility.task_position,
+    //               second_best_utility.value - best_utility.value);
+    // solution.neighbor.regret_max_heap.push(regret);
+    // JUST NEED TO RETURN THE service times somehow - SIDDHANT TANDON
+    solution.combo_prog.task_order.push_back(task);
+    solution.combo_prog.all_services.push_back(make_pair(task, service_times)); // saving all the service times for each conflicted task
 }
 
 void
@@ -400,7 +477,8 @@ LNS::computeRegretForTaskWithAgent(
   int earliest_timestep,
   int latest_timestep,
   vector<pair<int, int>>* precedence_constraints,
-  pairing_heap<Utility, compare<Utility::compare_node>>* service_times)
+//   pairing_heap<Utility, compare<Utility::compare_node>>* service_times)
+  vector<Utility>* service_times) // change from above
 {
 
     // compute the first position along the agent's task assignments where we can insert this task
@@ -451,7 +529,8 @@ LNS::computeRegretForTaskWithAgent(
         vector<pair<int, int>> prec_constraints = *precedence_constraints;
         Utility utility =
           insertTask(task, agent, j, &task_paths, &task_assignments, &prec_constraints);
-        service_times->push(utility);
+        // service_times->push(utility);
+        service_times->push_back(utility);
     }
 }
 
@@ -590,47 +669,8 @@ LNS::insertTask(int task,
         if (next_task != -1)
             value += (double)task_paths_ref[next_task].size();
 
-        // unordered_map<int, vector<int>> tasks_depen;
-        // tasks_depen = instance.getTaskDependencies(); // this is giving wrong tasks dependencies
-        // set<int> local_conflict_check = solution.neighbor.conflicted_tasks;
-        // for(pair<int, vector<int>> dependency : instance.getTaskDependencies())
-        // {
-        //     // int child_task = distance(tasks_depen.begin(), it);
-        //     int child_task = dependency.first;
-        //     if (local_conflict_check.find(child_task) == local_conflict_check.end())
-        //     {
-        //         // int child_agent = solution.getAgentWithTask(child_task);
-        //         // int child_index = solution.getLocalTaskIndex(child_agent, child_task);
-        //         // int child_timestamp = solution.agents[child_agent].task_paths[child_index].end_time();
-        //         int child_timestamp = task_paths_ref[child_task].end_time();
-        //         vector<int> child_ancestors = dependency.second;
-        //         for(int ancestor_task: child_ancestors)
-        //         {
-        //             if (local_conflict_check.find(ancestor_task) == local_conflict_check.end())
-        //             {
-        //                 // int ancestor_agent = solution.getAgentWithTask(ancestor_task);
-        //                 // int ancestor_index = solution.getLocalTaskIndex(ancestor_agent, ancestor_task);
-        //                 // int ancestor_timestamp = solution.agents[ancestor_agent].task_paths[ancestor_index].end_time();
-        //                 int ancestor_timestamp = task_paths_ref[ancestor_task].end_time();
-        //                 if (child_timestamp <= ancestor_timestamp)
-        //                 {
-        //                     PLOGI <<" Child task = " << child_task <<" Child end timestamp = "<< child_timestamp;
-        //                     PLOGI <<" Ancestor task = "<< ancestor_task <<" Ancestor end timestamp = "<< ancestor_timestamp;                            
-        //                     PLOGI <<" Regret for Task=" << task << " in Agent = "<< agent << " by pushing local task= " << next_task << " out";
-        //                     PLOGI <<" Found a TEMPORAL VIOLATION PRE commit, child task = " << child_task << " ancestor task = " << ancestor_task;
-        //                     // value = INT_MIN;
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-        // int Tcosts = 0;
-        // for (int taskz = 0; taskz < instance.getTasksNum(); taskz++) {
-        //     Tcosts += (task_paths_ref[taskz].end_time() - task_paths_ref[taskz].begin_time);
-        // }
-        // PLOGI << " [PRE COMMIT] total cost = " << Tcosts;
-
-        Utility utility(agent, task_position, value);
+        Utility utility(agent, task_position, task, value);
+        // Utility utility(agent, task_position, value);
         return utility;
     } else
         return Utility();
