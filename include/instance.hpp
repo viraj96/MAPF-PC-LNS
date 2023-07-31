@@ -13,6 +13,7 @@ class Instance
     int num_of_agents, num_of_tasks;
     vector<int> task_locations, start_locations;
     unordered_map<int, vector<int>> task_dependencies;
+    unordered_map<int, vector<int>> ancestor_to_successor_dependency; // adding a design change 
 
     bool loadMap();
     bool loadAgentsAndTasks();
@@ -66,6 +67,7 @@ class Instance
     inline vector<int> getTaskLocations() const { return task_locations; }
     inline vector<int> getStartLocations() const { return start_locations; }
     inline unordered_map<int, vector<int>> getTaskDependencies() const { return task_dependencies; }
+    inline unordered_map<int, vector<int>> getAncestorToSuccessorDependencies() const { return ancestor_to_successor_dependency; } // adding for reverse
     inline int getManhattanDistance(int loc1, int loc2) const
     {
         int loc1_x = getRowCoordinate(loc1);

@@ -32,6 +32,8 @@ main(int argc, char** argv)
     desc.add_options()(
       "maxIterations,i", po::value<int>()->default_value(0), "Maximum number of iterations");
     desc.add_options()("severity,d", po::value<int>()->default_value(0), "Debugging level");
+    // adding another flag for switching to combo solution
+    desc.add_options()("combo_sol,c", po::value<string>()->default_value("original"), "Switch to combination solution");
 
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -46,7 +48,10 @@ main(int argc, char** argv)
     plog::get()->setMaxSeverity(static_cast<plog::Severity>(vm["severity"].as<int>()));
 
     /* srand((int)time(0)); */
-    srand(3);
+    // srand(5); // 2 fault
+    srand(7); // combo large fault
+    // srand(8);
+    // srand((int)time(0));
 
     Instance instance(vm["map"].as<string>(),
                       vm["agents"].as<string>(),
@@ -54,7 +59,7 @@ main(int argc, char** argv)
                       vm["taskNum"].as<int>());
 
     for (int i = 0; i < instance.getAgentNum(); i++) {
-        pair<int, int> location = instance.getCoordinate(instance.getStartLocations()[i]);
+         pair<int, int> location = instance.getCoordinate(instance.getStartLocations()[i]);
         PLOGD << "Agent " << i << " starts at :(" << location.first << ", " << location.second
               << ")\n";
     }
@@ -73,7 +78,8 @@ main(int argc, char** argv)
     LNS lns_instance = LNS(vm["maxIterations"].as<int>(),
                            instance,
                            vm["neighborSize"].as<int>(),
-                           vm["cutoffTime"].as<double>());
+                           vm["cutoffTime"].as<double>(),
+                           vm["combo_sol"].as<string>());
     bool success = lns_instance.run();
     PLOGI << "Success = " << success << endl;
 }
