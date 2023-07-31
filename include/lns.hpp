@@ -19,7 +19,7 @@ struct Agent
     {
         path_planner = new MultiLabelSpaceTimeAStar(instance, id);
     }
-    ~Agent() { delete path_planner; }
+    // ~Agent() { delete path_planner; }
 };
 
 struct Utility
@@ -86,7 +86,8 @@ struct Combination
 
     inline bool operator< (const Combination &ob) const // functor to arrange combinations
     {
-        return (rank_sum <= ob.rank_sum);
+        // return (rank_sum <= ob.rank_sum); // this might be causing issues with sort - segfault (larger terms)
+        return (rank_sum < ob.rank_sum);
     }
 };
 struct Matching
@@ -115,6 +116,7 @@ class Solution
     int num_of_agents, num_of_tasks;
     vector<vector<int>> task_assignments;
     vector<pair<int, int>> precedence_constraints;
+    bool combination_conflict_flag; // this is to allow the program to end for exhausted combination list
 
     Solution(const Instance& instance)
     {
@@ -129,6 +131,8 @@ class Solution
 
     int getAgentWithTask(int global_task) const
     {
+        PLOGI << "global task inside task assign " << global_task; // delete 
+        // PLOGI << "inside the getnagent task func, task assign [9] [4] == " << task_assignments[9][4];// DELET AFTER DEBUG
         for (int i = 0; i < num_of_agents; i++)
             for (int j = 0; j < (int)task_assignments[i].size(); j++)
                 if (task_assignments[i][j] == global_task)
@@ -183,22 +187,162 @@ class Solution
 
     void joinPaths(vector<int> agents_to_compute)
     {
-        for (int agent : agents_to_compute) {
+        for (int agent : agents_to_compute) { // going over each agent
 
             assert(getAssignedTaskSize(agent) ==
                    (int)agents[agent].path_planner->goal_locations.size());
             assert(getAssignedTaskSize(agent) == (int)agents[agent].task_paths.size());
 
-            for (int i = 0; i < getAssignedTaskSize(agent); i++) {
-                if (i == 0)
+            for (int i = 0; i < getAssignedTaskSize(agent); i++) { // going over each task in sequence
+                if (i == 0) // first task
                     agents[agent].path.path.push_back(agents[agent].task_paths[i].front());
                 assert((int)agents[agent].path.size() - 1 ==
                        agents[agent].task_paths[i].begin_time);
-                for (int j = 1; j < (int)agents[agent].task_paths[i].size(); j++)
+                for (int j = 1; j < (int)agents[agent].task_paths[i].size(); j++) // not sure
                     agents[agent].path.path.push_back(agents[agent].task_paths[i].at(j));
                 agents[agent].path.timestamps.push_back(agents[agent].path.size() - 1);
             }
         }
+    }
+    void OnlinejoinPaths(set<int> agents_to_compute)
+    {
+        for (int agent : agents_to_compute) { // going over each agent
+
+            assert(getAssignedTaskSize(agent) ==
+                   (int)agents[agent].path_planner->goal_locations.size());
+            assert(getAssignedTaskSize(agent) == (int)agents[agent].task_paths.size());
+
+            for (int i = 0; i < getAssignedTaskSize(agent); i++) { // going over each task in sequence
+                if (i == 0) // first task
+                    agents[agent].path.path.push_back(agents[agent].task_paths[i].front());
+                assert((int)agents[agent].path.size() - 1 ==
+                       agents[agent].task_paths[i].begin_time);
+                for (int j = 1; j < (int)agents[agent].task_paths[i].size(); j++) // joining all the paths for the task
+                    agents[agent].path.path.push_back(agents[agent].task_paths[i].at(j));
+                agents[agent].path.timestamps.push_back(agents[agent].path.size() - 1);
+            }
+        }
+    }
+
+    vector<set<int>> getConflictIslands(const Instance* instance)
+    {
+        // how do you find out relations, and then order them within?
+        // choose something - go over both task dependencies and task ancestors
+        // if you find something add it to its list. then look at the ones in it and do the same
+        // start from beginning for the left over conflict tasks
+        unordered_map<int, vector<int>> task_depen = instance->getTaskDependencies();
+        unordered_map<int, vector<int>> ancestor_depen = instance->getAncestorToSuccessorDependencies();
+        set<int> local_ct_copy = neighbor.conflicted_tasks; // will need to remove any that exist from prev iteration?
+        vector<set<int>> islands; // can also call this from main loop so we can save prev iteration islands
+        for(auto it: neighbor.conflicted_tasks)
+        {   
+            if (islands.empty())
+            {
+                // first iteration
+                set<int> local_set;
+                local_set.insert(it);
+                // remove from local ct copy
+                local_ct_copy.erase(it);
+                vector<int> found;
+                for (auto in: local_ct_copy)
+                {
+                    // find task in successors
+                    
+                    if (task_depen.find(it) != task_depen.end())
+                    {
+                        vector<int> ancestors = task_depen[it];
+                        for (int a: ancestors)
+                        {
+                            if (a == in)
+                            {
+                                found.push_back(in);
+                            }
+                        }
+                    }
+                    // find task in ancestors
+                    if (ancestor_depen.find(it) != ancestor_depen.end())
+                    {
+                        vector<int> successors = ancestor_depen[it];
+                        for(int s: successors)
+                        {
+                            if (s == in)
+                            {
+                                found.push_back(in);
+                            }
+                        }
+                    }
+                }
+                // for each dependency found above remove from local_ct
+                // push local set to islands
+                for(auto f: found)
+                {
+                    local_set.insert(f);
+                    local_ct_copy.erase(f);
+                }
+                islands.push_back(local_set);
+                continue; // don't need it
+            }
+            else
+            {
+                // is this not in local_ct_copy? if yes means its already a part of island
+                if (local_ct_copy.find(it) == local_ct_copy.end())
+                {
+                    continue;
+                }
+                else
+                {
+                    // if not then needs to form a new island
+                    set<int> local_set;
+                    local_set.insert(it);
+                    local_ct_copy.erase(it);
+                    //for loop over local ct copy and same steps as above
+                    vector<int> found;
+                    for (auto in: local_ct_copy)
+                    {
+                        // find task in successors
+                        
+                        if (task_depen.find(it) != task_depen.end())
+                        {
+                            vector<int> ancestors = task_depen[it];
+                            for (int a: ancestors)
+                            {
+                                if (a == in)
+                                {
+                                    found.push_back(in);
+                                }
+                            }
+                        }
+                        // find task in ancestors
+                        if (ancestor_depen.find(it) != ancestor_depen.end())
+                        {
+                            vector<int> successors = ancestor_depen[it];
+                            for(int s: successors)
+                            {
+                                if (s == in)
+                                {
+                                    found.push_back(in);
+                                }
+                            }
+                        }
+                    }
+                    // for each dependency found above remove from local_ct
+                    // push local set to islands
+                    for(auto f: found)
+                    {
+                        local_set.insert(f);
+                        local_ct_copy.erase(f);
+                    }
+                    islands.push_back(local_set);
+                    continue;
+                    // end
+                }
+            }
+
+        }
+
+        // for each set find the correct order, SKIP FOR NOW
+
+        return islands;
     }
 };
 
@@ -213,6 +357,7 @@ class LNS
     Solution solution, previous_solution;
     double time_limit, initial_solution_runtime = 0;
     high_resolution_clock::time_point planner_start_time;
+    const string& combo_flag; // adding combo flag as part of protected class
 
   public:
     double runtime = 0;
@@ -220,14 +365,17 @@ class LNS
     list<IterationStats> iteration_stats;
     int num_of_failures = 0, sum_of_costs = 0;
 
-    LNS(int num_of_iterations, const Instance& instance, int neighbor_size, double time_limit);
+    LNS(int num_of_iterations, const Instance& instance, int neighbor_size, double time_limit, const string& combo_flag);
 
     inline Instance getInstance() { return instance; }
 
     bool run();
     void prepareNextIteration();
+    void OnlineprepareNextIteration(set<int> new_conflict_tasks, set<int> conflicted_tasks);
+    void ComboprepareNextIteration();
     void printPaths() const;
     bool validateSolution(set<int>* conflicted_tasks = nullptr);
+    bool OnlinevalidateSolution(set<int>* conflicted_tasks = nullptr);
     void build_constraint_table(ConstraintTable& constraint_table, int task);
 
     void build_constraint_table(ConstraintTable& constraint_table,
@@ -236,13 +384,31 @@ class LNS
                                 vector<Path>* paths,
                                 vector<vector<int>>* task_assignments,
                                 vector<pair<int, int>>* precedence_constraints);
-
-    void computeRegret(Solution* solution);
+    void Onlinebuild_constraint_table(ConstraintTable& constraint_table,
+                                int task,
+                                int task_location,
+                                vector<Path>* paths,
+                                vector<vector<int>>* task_assignments,
+                                vector<pair<int, int>>* precedence_constraints);
+    void Online_prep_build_constraint_table(ConstraintTable& constraint_table, int task, set<int> new_conflict_tasks, set<int> conflicted_tasks);
+    void combo_build_constraint_table(ConstraintTable& constraint_table,
+                                int task,
+                                vector<Path>* task_paths_ref);
+    void computeRegret();
+    void CombinationcomputeRegret(Solution* solution);
+    void OnlinecomputeRegret(int task);
     void regretBasedReinsertion();
     void computeRegretForMetaTask(deque<int> meta_task);
     void computeRegretForTask(int task);
     void commitBestRegretTask(Regret best_regret);
     void computeRegretForTaskWithAgent(
+      int task,
+      int agent,
+      int earliest_timestep,
+      int latest_timestep,
+      vector<pair<int, int>>* precedence_constraints,
+      pairing_heap<Utility, compare<Utility::compare_node>>* service_times);
+    void CombinationcomputeRegretForTaskWithAgent(
       int task,
       int agent,
       int earliest_timestep,
@@ -258,6 +424,13 @@ class LNS
                        vector<pair<int, int>>* precedence_constraints,
                        bool commit = false);
 
+    Utility ComboinsertTask(int task,
+                       int agent,
+                       int task_position,
+                       vector<vector<int>>* task_assignments,
+                       vector<pair<int, int>>* precedence_constraints,
+                       vector<Path>* task_paths_ref,
+                       set<int>* affected_ref);
     void printAgents() const
     {
         for (int i = 0; i < instance.getAgentNum(); i++) {
@@ -324,6 +497,7 @@ class LNS
                 // start the recursion loop
                 int index = 0; // will this help or should I do something else?
                 vector<Combination> combo_list;
+
                 combo_list = recursive_combo_builder(index, solution->combo_prog.all_services, solution);
                 // loop over all service times for first task, order doesn't matter
                 for(Combination c: combo_list)
@@ -345,6 +519,7 @@ class LNS
             }
         }
         // ordering combinations based on the total value of the sum of each service time in the combination for all conflicted tasks
+        PLOGW <<"Combination size = " << solution->combo_prog.combination_list.size();
         std::sort(solution->combo_prog.combination_list.begin(), solution->combo_prog.combination_list.end());
     }
 
@@ -357,7 +532,7 @@ class LNS
         {
             // int child_task = distance(tasks_depen.begin(), it);
             int child_task = dependency.first;
-            if (local_conflict_check.find(child_task) == local_conflict_check.end())
+            if (local_conflict_check.find(child_task) == local_conflict_check.end()) // we dont want these in conflict set
             {
                 int child_agent = solution->getAgentWithTask(child_task);
                 int child_index = solution->getLocalTaskIndex(child_agent, child_task);
@@ -365,7 +540,7 @@ class LNS
                 vector<int> child_ancestors = dependency.second;
                 for(int ancestor_task: child_ancestors)
                 {
-                    if (local_conflict_check.find(ancestor_task) == local_conflict_check.end())
+                    if (local_conflict_check.find(ancestor_task) == local_conflict_check.end()) // we don't want these in conflict set
                     {
                         int ancestor_agent = solution->getAgentWithTask(ancestor_task);
                         int ancestor_index = solution->getLocalTaskIndex(ancestor_agent, ancestor_task);
@@ -385,7 +560,94 @@ class LNS
         }
         return false; // means everything is okay and time for cost check
     }
+    // TODO - THIS NEEDS to accept a different set of tasks that are AFFECTED by the placement of conflict tasks
+    // IT SHOULD BE A PAIR OF INT AND PATH, pair<int, Path>
+    bool ComboTemporalChecker2(vector<Path>* task_path_refs, set<int> affected_ref)
+    {
+        unordered_map<int, vector<int>> successors = instance.getAncestorToSuccessorDependencies();
+        unordered_map<int, vector<int>> ancestors = instance.getTaskDependencies();
+        for(auto a: affected_ref)
+        {
+            vector<int> current_succesors = successors[a];
+            int task_timestamp = task_path_refs->at(a).end_time();
+            for(int s: current_succesors)
+            {
+                // PLOGI<< "Affected Task = " << a << " Successor = " << s;
+                int successor_timestamp = task_path_refs->at(s).end_time();
+                // PLOGI <<" Successor task = " << s <<" Successor end timestamp = "<< successor_timestamp;
+                // PLOGI <<" Ancestor task = "<< a <<" Ancestor end timestamp = "<< task_timestamp;
+                if(successor_timestamp <= task_timestamp)
+                {
+                    // PLOGI <<" Regret for Task=" << task << " in Agent = "<< agent << " by pushing local task= " << next_task << " out";
+                    PLOGI <<" Found a TEMPORAL VIOLATION, successor task = " << s << " time = " << successor_timestamp << " ancestor task = " << a << " time = " << task_timestamp;
+                    // value = INT_MIN;
+                    return true; // temporal issue found so move on to next task
+                }
+            }
 
+            vector<int> current_ancestors = ancestors[a];
+            for(int an: current_ancestors)
+            {
+                // PLOGI <<"Affected Task = " << a <<" Ancestor = " << an;
+                int ancestor_timestamp = task_path_refs->at(an).end_time();
+                // PLOGI <<" Ancestor task = " << an <<" Ancestor end timestamp = "<< ancestor_timestamp;
+                // PLOGI <<" Succesor task = "<< a <<" Successor end timestamp = "<< task_timestamp;
+                if(task_timestamp <= ancestor_timestamp)
+                {
+                    // PLOGI <<" Regret for Task=" << task << " in Agent = "<< agent << " by pushing local task= " << next_task << " out";
+                    PLOGI <<" Found a TEMPORAL VIOLATION, successor task = " << a <<" time = " << task_timestamp << " ancestor task = " << an <<" time = "<< ancestor_timestamp;
+                    // value = INT_MIN;
+                    return true; // temporal issue found so move on to next task                   
+                }
+            }
+
+
+        }
+        return false; // means no temporal issue will exist
+    }
+
+    bool ComboTemporalChecker3(vector<Path>* task_path_refs)
+    {
+        unordered_map<int, vector<int>> successors = instance.getAncestorToSuccessorDependencies();
+        unordered_map<int, vector<int>> ancestors = instance.getTaskDependencies();
+        for(auto it = task_path_refs->begin(); it != task_path_refs->end(); it++)
+        {
+            int task = distance(task_path_refs->begin(), it);
+            int task_time = task_path_refs->at(task).end_time();
+            if(solution.neighbor.conflicted_tasks.find(task) == solution.neighbor.conflicted_tasks.end())
+            {
+                if(successors.find(task) != successors.end())
+                {
+                    vector<int> current_succ = successors[task];
+                    for(int succ: current_succ)
+                    {
+                        int succ_time = task_path_refs->at(succ).end_time();
+                        PLOGW << task_time <<" " << succ_time;
+                        if (succ_time <= task_time)
+                        {
+                            PLOGE <<" Found a TEMPORAL VIOLATION, successor task = " << succ << " time = " << succ_time << " ancestor task = " << task << " time = " << task_time;
+                            return true;
+                        }
+                    }
+                }
+                if(ancestors.find(task) != ancestors.end())
+                {
+                    vector<int> current_anc = ancestors[task];
+                    for(int anc: current_anc)
+                    {
+                        int anc_time = task_path_refs->at(anc).end_time();
+                        PLOGW << anc_time << " " << task_time;
+                        if (task_time <= anc_time)
+                        {
+                            PLOGE <<" Found a TEMPORAL VIOLATION, successor task = " << task << " time = " << task_time << " ancestor task = " << anc << " time = " << anc_time;
+                            return true;
+                        }
+                    }                   
+                }
+            }
+        }
+        return false; // means no temporal issue will exist
+    }    
 
     bool ComboCostChecker(const Instance* instance, Solution* solution, Solution* prev_solution)
     {
@@ -403,5 +665,31 @@ class LNS
         {
             return false; // means we have a lower cost solution
         }
-    }    
+    }
+
+        bool ComboCostChecker2(vector<Path>* task_path_refs)
+    {
+        int Tcosts = 0;
+        int compCosts = 0;
+        for (int taskz = 0; taskz < instance.getTasksNum(); taskz++) {
+            Tcosts += (task_path_refs->at(taskz).end_time() - task_path_refs->at(taskz).begin_time);
+        }
+        for (int a = 0; a < instance.getAgentNum(); a++)
+        {
+            compCosts += solution.agents[a].path.end_time(); // technically would be lower because we haven't updated solution yet
+        }
+        PLOGI << "Combination total cost = " << Tcosts;
+        PLOGI << "Comparative total cost (path end time) =  "<< compCosts;
+        PLOGI << "Previous solution cost = " << previous_solution.sum_of_costs;
+        if (previous_solution.sum_of_costs < Tcosts)
+        {
+            PLOGI << "Combination cost is higher, cannot use!" << endl;
+            return true;
+        }
+        else
+        {
+            return false; // means we have a lower cost solution
+        }
+    } 
+
 };

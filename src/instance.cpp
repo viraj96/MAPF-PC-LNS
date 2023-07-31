@@ -150,6 +150,8 @@ Instance::loadAgentsAndTasks()
         int i, j;
         tie(i, j) = dependency;
         task_dependencies[j].push_back(i);
+        // adding another design change
+        ancestor_to_successor_dependency[i].push_back(j);
     }
 
     PLOGD << "# Agents: " << num_of_agents << "\t # Tasks: " << num_of_tasks
