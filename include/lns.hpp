@@ -291,50 +291,95 @@ class Solution
                 }
                 else
                 {
-                    // if not then needs to form a new island
-                    set<int> local_set;
-                    local_set.insert(it);
-                    local_ct_copy.erase(it);
-                    //for loop over local ct copy and same steps as above
-                    vector<int> found;
-                    for (auto in: local_ct_copy)
+                    // if not then needs to form a new island or join an existing island!
+                    bool exist_flag = false;
+                    // first check existing islands
+                    for(auto ild = islands.begin(); ild != islands.end(); ild++) // isld  = each island
                     {
-                        // find task in successors
-                        
-                        if (task_depen.find(it) != task_depen.end())
+                        set<int> isld = islands[distance(islands.begin(), ild)]; // C++ dont allow to update sets
+                        islands.erase(ild); // removing the current set from the vector
+                        set<int> local_set = isld; // creating new local copy of set
+                        for(int t : isld) // t = each existing task
                         {
-                            vector<int> ancestors = task_depen[it];
-                            for (int a: ancestors)
+                            if (task_depen.find(it) != task_depen.end())
                             {
-                                if (a == in)
+                                vector<int> ancestors = task_depen[it];
+                                for (int a: ancestors)
                                 {
-                                    found.push_back(in);
+                                    if (a == t)
+                                    {
+                                        // isld.insert(it);  // this doesn't work for sets
+                                        local_set.insert(local_set.end(), it);
+                                        local_ct_copy.erase(it);
+                                        exist_flag = true;
+                                    }
+                                }
+                            }
+                            // find task in ancestors
+                            if (!exist_flag){
+                                if (ancestor_depen.find(it) != ancestor_depen.end())
+                                {
+                                    vector<int> successors = ancestor_depen[it];
+                                    for(int s: successors)
+                                    {
+                                        if (s == t)
+                                        {
+                                            local_set.insert(local_set.end(), it);
+                                            local_ct_copy.erase(it);
+                                            exist_flag = true;
+                                        }
+                                    }
                                 }
                             }
                         }
-                        // find task in ancestors
-                        if (ancestor_depen.find(it) != ancestor_depen.end())
+                        islands.insert(ild, local_set); // pushing the local copy of the set back to the vector
+                    }
+
+                    if (!exist_flag)
+                    {
+                        // make a new island
+                        set<int> local_set;
+                        local_set.insert(it);
+                        local_ct_copy.erase(it);
+                        //for loop over local ct copy and same steps as above
+                        vector<int> found;
+                        for (auto in: local_ct_copy)
                         {
-                            vector<int> successors = ancestor_depen[it];
-                            for(int s: successors)
+                            // find task in successors
+                            
+                            if (task_depen.find(it) != task_depen.end())
                             {
-                                if (s == in)
+                                vector<int> ancestors = task_depen[it];
+                                for (int a: ancestors)
                                 {
-                                    found.push_back(in);
+                                    if (a == in)
+                                    {
+                                        found.push_back(in);
+                                    }
+                                }
+                            }
+                            // find task in ancestors
+                            if (ancestor_depen.find(it) != ancestor_depen.end())
+                            {
+                                vector<int> successors = ancestor_depen[it];
+                                for(int s: successors)
+                                {
+                                    if (s == in)
+                                    {
+                                        found.push_back(in);
+                                    }
                                 }
                             }
                         }
-                    }
-                    // for each dependency found above remove from local_ct
-                    // push local set to islands
-                    for(auto f: found)
-                    {
-                        local_set.insert(f);
-                        local_ct_copy.erase(f);
-                    }
-                    islands.push_back(local_set);
-                    continue;
-                    // end
+                        // for each dependency found above remove from local_ct
+                        // push local set to islands
+                        for(auto f: found)
+                        {
+                            local_set.insert(f);
+                            local_ct_copy.erase(f);
+                        }
+                        islands.push_back(local_set); 
+                    }// end
                 }
             }
 

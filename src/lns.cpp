@@ -128,10 +128,12 @@ LNS::run()
             PLOGE << "The initial solution was not valid!\n";
             solution.neighbor.conflicted_tasks = conflicted_tasks;
             previous_solution = solution;
-
-            prepareNextIteration();
-            PLOGW << "Printing paths after prep next step";
-            printPaths();
+            // need to add a flag here
+            if (combo_flag == "original" || combo_flag == "online" || combo_flag == "single"){
+                prepareNextIteration();
+                PLOGW << "Printing paths after prep next step";
+                printPaths();            
+            }
 
             // Compute regret for each of the tasks that are in the conflicting set
             // Pick the best one and repeat the whole process aboe
@@ -165,6 +167,21 @@ LNS::run()
                         }
                     }
                     PLOGW << "Number of islands found = " << islands.size();
+
+                    //TODO:
+                    // A. Find topological order for each island
+                    // B. Compute metatask regret for each island
+                    // For loop
+                    // 1. Choose first task of ordered vector
+                    // 2. computeRegret() <- pass some no op time (parent), // TODO: update computeRegret to accept time as another constraint
+                    // 3. save the best time as part of the Order struct and store Regret (as done previously) //TODO: Need a new struct
+                    // 4. Next task
+                    // 5. computeRegret() <- pass parent time as constraint
+                    // 6. save the best time
+                    // 7. etc continue
+                    // C. Compute the best island to commit (use the same thing below)
+                    // D. Commit the best island and get back new conflicts (will the be the same as before)
+
                     //second step is to get regret for each conflicted task (new struct make task , regret pair)
                     vector<int> compare_regret_sums; // store each island's regret sum
                     vector<vector<pair<int,Regret>>> island_regrets;
@@ -223,25 +240,23 @@ LNS::run()
                         //TODO: confirm that we need to do the removal of precedence constraints and their addition at each step
 
                         PLOGW << "Clearing Precedence constraints!";
-                        solution.precedence_constraints.clear();
+                        // solution.precedence_constraints.clear();
                         // compute the precedence constraints based on current task assignments
                         // intra agent precedence constraints
                         for (int agent = 0; agent < instance.getAgentNum(); agent++)
                             for (int task = 1; task < solution.getAssignedTaskSize(agent); task++){
                                 solution.insertPrecedenceConstraint(solution.task_assignments[agent][task - 1],
                                                                     solution.task_assignments[agent][task]);
-                                if (task == 9)
-                                {
-                                    PLOGE << agent;
-                                    PLOGE << solution.task_assignments[agent][task - 1];
-                                    PLOGE << solution.task_assignments[agent][task];
-                                }
+                                PLOGI << "ancestor " << solution.task_assignments[agent][task - 1];
+                                PLOGI << "successor " << solution.task_assignments[agent][task];
                             }
                         // inter agent precedence constraints - this should remain same across all
                         for (int task = 0; task < instance.getTasksNum(); task++) {
                             vector<int> previous_tasks = instance.getTaskDependencies()[task];
                             for (int pt : previous_tasks){
                                 solution.insertPrecedenceConstraint(pt, task);
+                                PLOGI << "ancestor " << pt;
+                                PLOGI << "successor " << task;
                             }
                         }
                         PLOGW << "Adding new precedence constraints";
@@ -270,100 +285,100 @@ LNS::run()
                     
                 }
             }
-            else if (combo_flag == "single")
-            {
-                /*
-                IDEA 3: This is also making groups of conflicts, but committing one task from group and resetting
-                */
-                //TODO: MAKE ISLANDS WITH VALIDATION CHECK, so as to not pay compute cost twice
-                bool break_flag = false;
-                while (!solution.neighbor.conflicted_tasks.empty()) {
-                    //first step is to break up the set into mini islands (task dependencies to break set)
-                    vector<set<int>> islands = solution.getConflictIslands(&instance);
-                    PLOGW << "Number of islands found = " << islands.size();
-                    //second step is to get regret for each conflicted task (new struct make task , regret pair)
-                    vector<int> compare_regret_sums; // store each island's regret sum
-                    vector<vector<pair<int,Regret>>> island_regrets;
-                    for (set<int> island: islands) // for loop to get each island's sum
-                    {
-                        int sums = 0;
-                        vector<pair<int, Regret>> save_regrets;
-                        for (int task: island)
-                        {
-                            OnlinecomputeRegret(task); // should take one task at a time from the set
-                            Regret best_regret = solution.neighbor.regret_max_heap.top();
-                            sums += best_regret.value;
-                            save_regrets.push_back(make_pair(task, best_regret));
-                        }
-                        compare_regret_sums.push_back(sums);
-                        island_regrets.push_back(save_regrets);
-                    }
-                    //third step is to choose the island with the max regret (sum individual regret values within island)
-                    while (!compare_regret_sums.empty())
-                    {
-                        //TODO fourth step is to commit the island in order (new struct / heap? with above)
-                            // skip // CAN PERHAPS USE TOPOLOGICAL SORT HERE
-                        auto max_it = std::max_element(compare_regret_sums.begin(), compare_regret_sums.end());
-                        int max_index = distance(compare_regret_sums.begin(), max_it);
-                        PLOGI << "Max regret value = " << compare_regret_sums[max_index] << " For Island = " << max_index;
-                        set<int> island = islands[max_index];
-                        vector<pair<int,Regret>> saved_regrets = island_regrets[max_index];
-                        for (int task: island)
-                        {
-                            for(pair<int,Regret> p: saved_regrets)
-                            {
-                                if (p.first == task)
-                                {
-                                    // Use the best regret task and insert it in its correct location
-                                    commitBestRegretTask(p.second);
-                                    PLOGI << "Removing from conflict set task = " << task;
-                                    solution.neighbor.conflicted_tasks.erase(task);
-                                    conflicted_tasks.erase(task);
-                                }
-                                PLOGW << "Size of solution neighbor CT = " << solution.neighbor.conflicted_tasks.size();
-                                PLOGW << "Size of local CT = " << conflicted_tasks.size();
-                                compare_regret_sums.erase(compare_regret_sums.begin(), compare_regret_sums.begin()+max_index);
-                                //fifth step is to validate the committed island solution
-                                for (int i = 0; i < instance.getAgentNum(); i++)
-                                    solution.agents[i].path = Path();
+            // else if (combo_flag == "single")
+            // {
+            //     /*
+            //     IDEA 3: This is also making groups of conflicts, but committing one task from group and resetting
+            //     */
+               
+            //     bool break_flag = false;
+            //     while (!solution.neighbor.conflicted_tasks.empty()) {
+            //         //first step is to break up the set into mini islands (task dependencies to break set)
+            //         vector<set<int>> islands = solution.getConflictIslands(&instance);
+            //         PLOGW << "Number of islands found = " << islands.size();
+            //         //second step is to get regret for each conflicted task (new struct make task , regret pair)
+            //         vector<int> compare_regret_sums; // store each island's regret sum
+            //         vector<vector<pair<int,Regret>>> island_regrets;
+            //         for (set<int> island: islands) // for loop to get each island's sum
+            //         {
+            //             int sums = 0;
+            //             vector<pair<int, Regret>> save_regrets;
+            //             for (int task: island)
+            //             {
+            //                 OnlinecomputeRegret(task); // should take one task at a time from the set
+            //                 Regret best_regret = solution.neighbor.regret_max_heap.top();
+            //                 sums += best_regret.value;
+            //                 save_regrets.push_back(make_pair(task, best_regret));
+            //             }
+            //             compare_regret_sums.push_back(sums);
+            //             island_regrets.push_back(save_regrets);
+            //         }
+            //         //third step is to choose the island with the max regret (sum individual regret values within island)
+            //         while (!compare_regret_sums.empty())
+            //         {
+            //             //TODO fourth step is to commit the island in order (new struct / heap? with above)
+            //                 // skip // CAN PERHAPS USE TOPOLOGICAL SORT HERE
+            //             auto max_it = std::max_element(compare_regret_sums.begin(), compare_regret_sums.end());
+            //             int max_index = distance(compare_regret_sums.begin(), max_it);
+            //             PLOGI << "Max regret value = " << compare_regret_sums[max_index] << " For Island = " << max_index;
+            //             set<int> island = islands[max_index];
+            //             vector<pair<int,Regret>> saved_regrets = island_regrets[max_index];
+            //             for (int task: island)
+            //             {
+            //                 for(pair<int,Regret> p: saved_regrets)
+            //                 {
+            //                     if (p.first == task)
+            //                     {
+            //                         // Use the best regret task and insert it in its correct location
+            //                         commitBestRegretTask(p.second);
+            //                         PLOGI << "Removing from conflict set task = " << task;
+            //                         solution.neighbor.conflicted_tasks.erase(task);
+            //                         conflicted_tasks.erase(task);
+            //                     }
+            //                     PLOGW << "Size of solution neighbor CT = " << solution.neighbor.conflicted_tasks.size();
+            //                     PLOGW << "Size of local CT = " << conflicted_tasks.size();
+            //                     compare_regret_sums.erase(compare_regret_sums.begin(), compare_regret_sums.begin()+max_index);
+            //                     //fifth step is to validate the committed island solution
+            //                     for (int i = 0; i < instance.getAgentNum(); i++)
+            //                         solution.agents[i].path = Path();
 
-                                vector<int> agents_to_compute(instance.getAgentNum());
-                                std::iota(agents_to_compute.begin(), agents_to_compute.end(), 0);
-                                solution.joinPaths(agents_to_compute);
-                                printPaths();
-                                //sixth step is to get new conflicts and push them to set (remove current conflict tasks in island, add any new)
-                                set<int> new_conflict_tasks;
-                                valid = OnlinevalidateSolution(&new_conflict_tasks); // assertion error happens for infinite loop islands at 2nd iteration
-                                if (valid) {
-                                    PLOGV << "No issues with island commit!\n";
-                                } else {
-                                    PLOGE << "New conflicts found with island commit!\n";
-                                    solution.neighbor.conflicted_tasks = new_conflict_tasks; // have to do this to allow prep next iteration to work
-                                    previous_solution = solution;// I need to do this to keep an updated prev solution with commits made
-                                    //seventh step is to prepare the solution using prep next iteration (amend the paths using prep next iteration)
-                                    OnlineprepareNextIteration(new_conflict_tasks, conflicted_tasks);
-                                    // just to ensure for cases when conflict agents are at the end of their agent's sequence
-                                    std::merge(new_conflict_tasks.begin(), new_conflict_tasks.end(),
-                                        conflicted_tasks.begin(), conflicted_tasks.end(),
-                                            std::inserter(solution.neighbor.conflicted_tasks, solution.neighbor.conflicted_tasks.begin()));
-                                    // now that a new solution neighbor conflict has been merged, we can update the conflict task set for next iter
-                                    conflicted_tasks = solution.neighbor.conflicted_tasks; // I need to do this for ground truth in next iter
-                                    break_flag = true;
-                                    break; // need to break to start again
-                                }
-                                //TODO eight step is to go to step 1 (if new conflicts, get rid of island heap, get rid of islands, restart process)
-                            }
-                            if (break_flag)
-                                break;
-                        }
-                        if (break_flag)
-                            break;
+            //                     vector<int> agents_to_compute(instance.getAgentNum());
+            //                     std::iota(agents_to_compute.begin(), agents_to_compute.end(), 0);
+            //                     solution.joinPaths(agents_to_compute);
+            //                     printPaths();
+            //                     //sixth step is to get new conflicts and push them to set (remove current conflict tasks in island, add any new)
+            //                     set<int> new_conflict_tasks;
+            //                     valid = OnlinevalidateSolution(&new_conflict_tasks); // assertion error happens for infinite loop islands at 2nd iteration
+            //                     if (valid) {
+            //                         PLOGV << "No issues with island commit!\n";
+            //                     } else {
+            //                         PLOGE << "New conflicts found with island commit!\n";
+            //                         solution.neighbor.conflicted_tasks = new_conflict_tasks; // have to do this to allow prep next iteration to work
+            //                         previous_solution = solution;// I need to do this to keep an updated prev solution with commits made
+            //                         //seventh step is to prepare the solution using prep next iteration (amend the paths using prep next iteration)
+            //                         OnlineprepareNextIteration(new_conflict_tasks, conflicted_tasks);
+            //                         // just to ensure for cases when conflict agents are at the end of their agent's sequence
+            //                         std::merge(new_conflict_tasks.begin(), new_conflict_tasks.end(),
+            //                             conflicted_tasks.begin(), conflicted_tasks.end(),
+            //                                 std::inserter(solution.neighbor.conflicted_tasks, solution.neighbor.conflicted_tasks.begin()));
+            //                         // now that a new solution neighbor conflict has been merged, we can update the conflict task set for next iter
+            //                         conflicted_tasks = solution.neighbor.conflicted_tasks; // I need to do this for ground truth in next iter
+            //                         break_flag = true;
+            //                         break; // need to break to start again
+            //                     }
+            //                     //TODO eight step is to go to step 1 (if new conflicts, get rid of island heap, get rid of islands, restart process)
+            //                 }
+            //                 if (break_flag)
+            //                     break;
+            //             }
+            //             if (break_flag)
+            //                 break;
                         
-                    }
-                    // if (break_flag) // don't need this
-                    //     break;
-                }                
-            }
+            //         }
+            //         // if (break_flag) // don't need this
+            //         //     break;
+            //     }                
+            // }
             // join the individual paths that were found for each agent
             for (int i = 0; i < instance.getAgentNum(); i++)
                 solution.agents[i].path = Path();
@@ -614,13 +629,13 @@ LNS::computeRegretForTask(int task)
 
     if (combo_flag == "original" || combo_flag == "online" || combo_flag == "single")
     {
-        for (int agent = 0; agent < instance.getAgentNum(); agent++)
+        for (int agent = 0; agent < instance.getAgentNum(); agent++){
             computeRegretForTaskWithAgent(
-            task, agent, earliest_timestep, latest_timestep, &precedence_constraints, &service_times);
+            task, agent, earliest_timestep, latest_timestep, &precedence_constraints, &service_times);}
 
         Utility best_utility = service_times.top();
         service_times.pop();
-        // TODO: Add a way to by pass the second service times
+
         if (!service_times.empty()){
             Utility second_best_utility = service_times.top();
             Regret regret(task,
@@ -665,7 +680,7 @@ LNS::computeRegretForTaskWithAgent(
             break;
         }
     }
-
+    // PLOGW << "valid position start " << first_valid_position << " valid position end " << last_valid_position << " agent " << agent;
     assert(first_valid_position >= 0);
     assert(last_valid_position <= solution.getAssignedTaskSize(agent) + 1);
 
@@ -680,27 +695,31 @@ LNS::computeRegretForTaskWithAgent(
             distance += instance.getManhattanDistance(
               instance.getTaskLocations(task),
               instance.getTaskLocations(solution.getAgentGlobalTasks(agent, j)));
-        } else if (j == 0)
+        } else if (j == 0){
             distance += instance.getManhattanDistance(
-              solution.agents[agent].path_planner->start_location, instance.getTaskLocations(task));
-        else
+              solution.agents[agent].path_planner->start_location, instance.getTaskLocations(task));}
+        else{
             distance += instance.getManhattanDistance(
               instance.getTaskLocations(solution.getAgentGlobalTasks(agent, j - 1)),
-              instance.getTaskLocations(task));
+              instance.getTaskLocations(task));}
 
         // if the computed distance estimated is longer than the original path size then why bother
         if (distance > solution.neighbor.conflicted_tasks_path_size[task])
             continue;
 
-        if (solution.agents[agent].path.timestamps[j-1] < earliest_timestep) // asserting that the earliest time bounds be met
-            continue;
-        
-        // if (solution.agents[agent].path.timestamps[j-1] > latest_timestep)
-        //     continue;
-        //TODO: add a check here for latest timestamp
-        // PLOGW << "Regret based latest timestamp = " << latest_timestep;
-        // PLOGW << "Chosen begin timestamp = " << solution.agents[agent].path.timestamps[j+1] << " for pos " << j << " and agent " << agent;
+        if (j != 0) // asserting that the earliest time bounds be met
+        {
+            if (solution.agents[agent].path.timestamps[j-1] < earliest_timestep) 
+                continue;
+        }
+        if (j <= solution.getAssignedTaskSize(agent)-1) // asserting that latest time bounds are met
+        {
+            if (solution.agents[agent].path.timestamps[j+1] > latest_timestep) 
+                continue;            
+        }
 
+        // PLOGW << "Regret based latest timestamp = " << latest_timestep;
+        // PLOGW << "Chosen begin timestamp = " << solution.agents[agent].path.timestamps[j-1] << " for pos " << j << " and agent " << agent;
         vector<Path> task_paths = solution.paths;
         vector<vector<int>> task_assignments = solution.task_assignments;
         vector<pair<int, int>> prec_constraints = *precedence_constraints;
