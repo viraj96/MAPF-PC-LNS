@@ -11,6 +11,7 @@
 #include <map>
 #include <set>
 #include <deque>
+#include <queue> // adding for temporal order struct
 #include <stack>
 #include <tuple>
 #include <vector>

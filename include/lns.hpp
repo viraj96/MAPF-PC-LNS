@@ -24,7 +24,7 @@ struct Agent
 
 struct Utility
 {
-    int agent, task_position, task; // adding task capability since not using Regret
+    int agent, task_position, task, endtime; // adding task capability since not using Regret
     double value;
 
     Utility()
@@ -33,12 +33,14 @@ struct Utility
         task_position = -1;
         value = std::numeric_limits<double>::max();
         task = -1;
+        endtime = -1;
     }
 
-    Utility(int agent, int task_position, int task, double value) // adding task capability
+    Utility(int agent, int task_position, int task,int time, double value) // adding task capability
       : agent(agent)
       , task_position(task_position)
       , task(task) // appending constructor for task
+      , endtime(time)
       , value(value)
     {}
 
@@ -53,13 +55,14 @@ struct Utility
 
 struct Regret
 {
-    int task, agent, task_position;
+    int task, agent, task_position, endtime;
     double value;
 
-    Regret(int task, int agent, int task_position, double value)
+    Regret(int task, int agent, int task_position, int time, double value)
       : task(task)
       , agent(agent)
       , task_position(task_position)
+      , endtime(time)
       , value(value)
     {}
 
@@ -104,6 +107,14 @@ struct Matching
     }
 };
 
+struct TemporalOrder
+{
+    int task;
+    set<int> predecessors;
+    set<int> successors;
+    vector<pair<int,int>> predecessor_time;
+    int task_time;
+};
 
 class Solution
 {
@@ -389,6 +400,126 @@ class Solution
 
         return islands;
     }
+
+    pair<vector<int>, vector<TemporalOrder>> getIslandOrder(set<int> island)
+    {
+        // setup the nodes for the tasks
+        vector<TemporalOrder> local; // do I want this available outside? (use a pointer?)
+
+        for(auto t: island)
+        {
+            TemporalOrder o;
+            o.task = t;
+            for(pair<int,int> pc: precedence_constraints) // TODO: issue with pc, had to use set, can go back to vector with task depen
+            {
+                if (pc.first == t)
+                {
+                    if(island.find(pc.second) != island.end())
+                        o.successors.insert(pc.second);// o.successors.push_back(pc.second);
+                }
+                if (pc.second == t)
+                {
+                    if(island.find(pc.first) != island.end())
+                        o.predecessors.insert(pc.first);// o.predecessors.push_back(pc.first);
+                }
+            }
+            local.push_back(o);
+        }
+
+        // topological sort section
+        vector<int> closed;
+        set<int> expanded;
+        std::queue<int> open;
+
+        // find the children and add them to queue
+        for(auto o : local)
+        {
+            if (o.successors.size() == 0)
+            {
+                open.push(o.task);
+                expanded.insert(o.task);
+            }
+        }
+        
+        // topological sort loop
+        while(!open.empty())
+        {
+
+            // pop the element from queue
+            int curr = open.front();
+            
+            // get its parents and children
+            set<int> predecessors; // vector<int> predecessors
+            set<int> successors; // vector<int> successors
+            for(auto o : local)
+            {
+                if (curr == o.task)
+                {
+                    predecessors = o.predecessors;
+                    successors = o.successors;
+                    break;
+                }
+            }
+
+            // are the parents in expanded list?
+            for(int p: predecessors)
+            {
+                // if not add them to expaneded list and them to the queue
+                if(expanded.find(p) == expanded.end())
+                {
+                    expanded.insert(p);
+                    open.push(p);
+                }
+
+            }
+            // move onto children
+            bool add_child = false;
+            for(int c: successors)
+            {
+                bool close = false;    
+                // if yes, are they all in closed?
+                for(int l : closed)
+                {
+                    if (l == c)
+                    {
+                        close = true;
+                        break;
+                    }
+                }
+                if (close)
+                    continue;
+                
+                // if not in closed
+                // are they in expanded list?
+                bool expand = false;
+                // if not - add them to expanded list and to the queue
+                if(expand || (!close))
+                {
+                    open.push(c);
+                    expanded.insert(c); // will this ever happen?
+                    add_child = true;
+                }
+                // pop the task and add it back to queue
+                // if all in closed then
+            }
+            // move task to closed and pop
+            if (add_child)
+            {
+                open.pop();
+                open.push(curr);
+            }
+            else{
+                open.pop();
+                closed.push_back(curr);
+            }
+
+            // move to next
+        }
+
+        std::reverse(closed.begin(), closed.end());
+
+        return make_pair(closed, local);
+    }
 };
 
 class LNS
@@ -436,10 +567,11 @@ class LNS
                                 vector<pair<int, int>>* precedence_constraints);
     void Online_prep_build_constraint_table(ConstraintTable& constraint_table, int task, set<int> new_conflict_tasks, set<int> conflicted_tasks);
     void computeRegret();
-    void OnlinecomputeRegret(int task);
+    void OnlinecomputeRegret(int task, int earlyT);
     void regretBasedReinsertion();
     void computeRegretForMetaTask(deque<int> meta_task);
     void computeRegretForTask(int task);
+    void OnlinecomputeRegretForTask(int task, int earlyT);
     void commitBestRegretTask(Regret best_regret);
     void computeRegretForTaskWithAgent(
       int task,

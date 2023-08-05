@@ -107,10 +107,10 @@ topological_sort(const Instance* instance,
                     if (closed[dependent_task])
                         continue;
                     if (expanded[dependent_task]) {
-                        PLOGW << "task " << task;
-                        PLOGW << "current task " << current_task;
-                        PLOGW << "dependent task " << dependent_task; 
-                        PLOGE << "Detected a cycle while running topological sort\n";
+                        // PLOGW << "task " << task;
+                        // PLOGW << "current task " << current_task;
+                        // PLOGW << "dependent task " << dependent_task; 
+                        // PLOGE << "Detected a cycle while running topological sort\n";
                         return false;
                     }
                     dfs_stack.push(dependent_task);

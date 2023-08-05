@@ -157,53 +157,89 @@ LNS::run()
                 //TODO: optimization tip MAKE ISLANDS during validation solution check
                 while (!solution.neighbor.conflicted_tasks.empty()) {
                     //first step is to break up the set into mini islands (task dependencies to break set)
+                    // TODO: merge both island creation and order generation
                     vector<set<int>> islands = solution.getConflictIslands(&instance);
+                    // A. Find topological order for each island
+                    // save the topological order
+                    vector<pair<vector<int>, vector<TemporalOrder>>> islands_in_order;
                     for(set<int> s : islands)
                     {
-                        PLOGW <<"Starting island print here";
-                        for(int elem: s)
+                        pair<vector<int>, vector<TemporalOrder>> islandPackage = solution.getIslandOrder(s);
+                        islands_in_order.push_back(islandPackage);
+                        PLOGW <<"Temporal Order in the island";
+                        for (int elem: islandPackage.first)
                         {
-                            PLOGW << "Task = " << elem;
+                            PLOGW << elem;
                         }
                     }
                     PLOGW << "Number of islands found = " << islands.size();
-
-                    //TODO:
-                    // A. Find topological order for each island
                     // B. Compute metatask regret for each island
-                    // For loop
-                    // 1. Choose first task of ordered vector
-                    // 2. computeRegret() <- pass some no op time (parent), // TODO: update computeRegret to accept time as another constraint
-                    // 3. save the best time as part of the Order struct and store Regret (as done previously) //TODO: Need a new struct
-                    // 4. Next task
-                    // 5. computeRegret() <- pass parent time as constraint
-                    // 6. save the best time
-                    // 7. etc continue
-                    // C. Compute the best island to commit (use the same thing below)
-                    // D. Commit the best island and get back new conflicts (will the be the same as before)
-
-                    //second step is to get regret for each conflicted task (new struct make task , regret pair)
                     vector<int> compare_regret_sums; // store each island's regret sum
                     vector<vector<pair<int,Regret>>> island_regrets;
-                    for (set<int> island: islands) // for loop to get each island's sum
+                    for(pair<vector<int>, vector<TemporalOrder>> packet : islands_in_order)
                     {
-                        int sums = 0;
-                        vector<pair<int, Regret>> save_regrets;
-                        for (int task: island)
+                        vector<int> island = packet.first;
+                        vector<TemporalOrder> local =  packet.second; // convert this into a unordered_map?
+                        // TODO: Check why can't we get proper local elements with TemporalOrder struct back from the function
+                        vector<pair<int, Regret>> save_regrets; // save each task and its regret
+                        int IslandSums = 0;
+                        for (int t: island) // this is traversing from start to end right?
                         {
-                            OnlinecomputeRegret(task); // should take one task at a time from the set
+                            // For loop
+                            // 1. Choose first task of ordered vector
+                            TemporalOrder* curr;
+                            for (auto it = local.begin(); it != local.end(); it++) // get this task's struct
+                            {
+                                int index = distance(local.begin(), it);
+                                TemporalOrder o = local[index];
+                                if (o.task == t)
+                                {
+                                    curr = &(local[index]);
+                                    break;
+                                }
+                            }
+
+                            // check if predecessors
+                            int earlyT = -100000;
+                            if (curr->predecessors.size() != 0)
+                            {
+                                for (int anc: curr->predecessors) // find the earliest time for it
+                                {
+                                    for (auto o : local)
+                                    {
+                                        if (o.task == anc)
+                                        {
+                                            if (o.task_time > earlyT)
+                                            {
+                                                earlyT = o.task_time; // max of the anc time is the earliest time
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // compute its regret based on the earilest time
+                            OnlinecomputeRegret(t, earlyT); // change this function to take in another earliest time as constraint
                             Regret best_regret = solution.neighbor.regret_max_heap.top();
-                            sums += best_regret.value;
-                            save_regrets.push_back(make_pair(task, best_regret));
+                            IslandSums += best_regret.value;
+                            save_regrets.push_back(make_pair(t, best_regret));
+
+                            // get back time and position
+                            // save its time in its struct
+                            curr->task_time = best_regret.endtime; // using begin_time  + task path size to compute this is in insertTask()
+                            PLOGD << "Task = " << t <<" Agent = " << best_regret.agent << " End Time = " << curr->task_time;
+
+
                         }
-                        compare_regret_sums.push_back(sums);
+                        compare_regret_sums.push_back(IslandSums);
                         island_regrets.push_back(save_regrets);
+
                     }
-                    //third step is to choose the island with the max regret (sum individual regret values within island)
+                    // C. Compute the best island to commit (use the same thing below)
+                    // D. Commit the best island and get back new conflicts (will the be the same as before)
                     while (!compare_regret_sums.empty())
                     {
-                        //TODO fourth step is to commit the island in order (new struct / heap? with above)
-                            // skip // CAN PERHAPS USE TOPOLOGICAL SORT HERE
+
                         auto max_it = std::max_element(compare_regret_sums.begin(), compare_regret_sums.end());
                         int max_index = distance(compare_regret_sums.begin(), max_it);
                         PLOGI << "Max regret value = " << compare_regret_sums[max_index] << " For Island = " << max_index;
@@ -247,16 +283,16 @@ LNS::run()
                             for (int task = 1; task < solution.getAssignedTaskSize(agent); task++){
                                 solution.insertPrecedenceConstraint(solution.task_assignments[agent][task - 1],
                                                                     solution.task_assignments[agent][task]);
-                                PLOGI << "ancestor " << solution.task_assignments[agent][task - 1];
-                                PLOGI << "successor " << solution.task_assignments[agent][task];
+                                // PLOGI << "ancestor " << solution.task_assignments[agent][task - 1];
+                                // PLOGI << "successor " << solution.task_assignments[agent][task];
                             }
                         // inter agent precedence constraints - this should remain same across all
                         for (int task = 0; task < instance.getTasksNum(); task++) {
                             vector<int> previous_tasks = instance.getTaskDependencies()[task];
                             for (int pt : previous_tasks){
                                 solution.insertPrecedenceConstraint(pt, task);
-                                PLOGI << "ancestor " << pt;
-                                PLOGI << "successor " << task;
+                                // PLOGI << "ancestor " << pt;
+                                // PLOGI << "successor " << task;
                             }
                         }
                         PLOGW << "Adding new precedence constraints";
@@ -641,6 +677,7 @@ LNS::computeRegretForTask(int task)
             Regret regret(task,
                         best_utility.agent,
                         best_utility.task_position,
+                        best_utility.endtime,
                         second_best_utility.value - best_utility.value);
             solution.neighbor.regret_max_heap.push(regret);
         }
@@ -648,6 +685,7 @@ LNS::computeRegretForTask(int task)
             Regret regret(task,
                         best_utility.agent,
                         best_utility.task_position,
+                        best_utility.endtime,
                         best_utility.value); // WHAT should the second value be?
             solution.neighbor.regret_max_heap.push(regret);
         }
@@ -704,8 +742,8 @@ LNS::computeRegretForTaskWithAgent(
               instance.getTaskLocations(task));}
 
         // if the computed distance estimated is longer than the original path size then why bother
-        if (distance > solution.neighbor.conflicted_tasks_path_size[task])
-            continue;
+        // if (distance > solution.neighbor.conflicted_tasks_path_size[task]) // TODO: Remove this and see what happens?
+        //     continue;
 
         if (j != 0) // asserting that the earliest time bounds be met
         {
@@ -883,7 +921,8 @@ LNS::insertTask(int task,
         if (next_task != -1)
             value += (double)task_paths_ref[next_task].size();
 
-        Utility utility(agent, task_position, task, value);
+        int end_time = task_paths_ref[task].begin_time + task_paths_ref[task].size() - 1; // to account for when task is at last location
+        Utility utility(agent, task_position, task, end_time, value); // adding end time for limiting successor time
         // Utility utility(agent, task_position, value);
         return utility;
     } else
@@ -1471,11 +1510,121 @@ LNS::OnlinevalidateSolution(set<int>* conflicted_tasks)
 
 
 void
-LNS::OnlinecomputeRegret(int task)
+LNS::OnlinecomputeRegret(int task, int earlyT)
 {
     solution.neighbor.regret_max_heap.clear();
-    computeRegretForTask(task);
+    OnlinecomputeRegretForTask(task, earlyT);
 }
+
+void
+LNS::OnlinecomputeRegretForTask(int task, int earlyT)
+{
+
+    pairing_heap<Utility, compare<Utility::compare_node>> service_times;
+    // vector<Utility> combo_service_times; // changing to a vector so its easier to use with new format.
+    // Find the precedence constraints involving the task or any other task that is not in the
+    // conflicting set
+    vector<pair<int, int>> precedence_constraints;
+    for (pair<int, int> pc : solution.precedence_constraints) {
+        if (pc.first == task || pc.second == task ||
+            (std::find_if(solution.neighbor.conflicted_tasks.begin(),
+                          solution.neighbor.conflicted_tasks.end(),
+                          [pc](int task) { return pc.first == task || pc.second == task; })) ==
+              solution.neighbor.conflicted_tasks.end())
+            precedence_constraints.push_back(pc);
+    }
+
+    // compute the set of tasks that are needed to complete before we can complete this task
+    vector<int> successors;
+    vector<vector<int>> ancestors;
+    ancestors.resize(instance.getTasksNum());
+    for (pair<int, int> precedence_constraint : precedence_constraints) {
+        if (precedence_constraint.first == task)
+            successors.push_back(precedence_constraint.second);
+        ancestors[precedence_constraint.second].push_back(precedence_constraint.first);
+    }
+    
+    stack<int> q({ task });
+    unordered_set<int> previous_tasks;
+    int earliest_timestep = 0, latest_timestep = INT_MAX;
+    PLOGD << "Finding earliest timestep for task " << task << endl;
+    PLOGD << "Early time of ancestor = " << earlyT;
+    while (!q.empty()) {
+        int current = q.top();
+        q.pop();
+        if (previous_tasks.find(current) != previous_tasks.end())
+            continue;
+        previous_tasks.insert(current);
+        if (current != task && !solution.paths[current].empty()) {
+            PLOGD << "current = " << current << endl;
+            int agent = solution.getAgentWithTask(current);
+            int task_idx = solution.getLocalTaskIndex(agent, current);
+            if (earliest_timestep < solution.agents[agent].path.timestamps[task_idx]) {
+                PLOGD << "Going to update earliest timestep from " << earliest_timestep << endl;
+                earliest_timestep = solution.agents[agent].path.timestamps[task_idx];
+                PLOGD << "New earliest timestep " << earliest_timestep << endl;
+                PLOGD << "Came from " << agent << ", " << current << " at " << task_idx << endl;
+            }
+        }
+        for (int agent_task_ancestor : ancestors[current])
+            if (previous_tasks.find(agent_task_ancestor) == previous_tasks.end())
+                q.push(agent_task_ancestor);
+    }
+    previous_tasks.erase(task);
+    if (earlyT > earliest_timestep)
+    {
+        PLOGD << "New earliest_timestep = " << earlyT << " came from task's ancestor";
+        earliest_timestep = earlyT;
+    }
+
+    PLOGD << "Finding latest timestep for task " << task << endl;
+    for (int succ : successors) {
+        if (solution.paths[succ].empty())
+            continue;
+        int agent = solution.getAgentWithTask(succ);
+        int task_idx = solution.getLocalTaskIndex(agent, succ);
+        if (latest_timestep > solution.agents[agent].path.timestamps[task_idx]) {
+            PLOGD << "Going to update latest timestep from " << latest_timestep << endl;
+            latest_timestep = solution.agents[agent].path.timestamps[task_idx];
+            PLOGD << "New latest timestep " << latest_timestep << endl;
+            PLOGD << "Came from " << agent << ", " << succ << " at " << task_idx << endl;
+        }
+    }
+    if (latest_timestep < earliest_timestep)
+    {
+        PLOGW << "Task " << task <<" has latest_timestep lower than earlier, subsituting with max";
+        latest_timestep = INT_MAX;
+    }
+
+    if (combo_flag == "original" || combo_flag == "online" || combo_flag == "single")
+    {
+        for (int agent = 0; agent < instance.getAgentNum(); agent++){
+            computeRegretForTaskWithAgent(
+            task, agent, earliest_timestep, latest_timestep, &precedence_constraints, &service_times);}
+
+        Utility best_utility = service_times.top();
+        service_times.pop();
+
+        if (!service_times.empty()){
+            Utility second_best_utility = service_times.top();
+            Regret regret(task,
+                        best_utility.agent,
+                        best_utility.task_position,
+                        best_utility.endtime,
+                        second_best_utility.value - best_utility.value);
+            solution.neighbor.regret_max_heap.push(regret);
+        }
+        else{
+            Regret regret(task,
+                        best_utility.agent,
+                        best_utility.task_position,
+                        best_utility.endtime,
+                        best_utility.value); // WHAT should the second value be?
+            solution.neighbor.regret_max_heap.push(regret);
+        }
+    }
+}
+
 
 void
 LNS::Onlinebuild_constraint_table(ConstraintTable& constraint_table,
