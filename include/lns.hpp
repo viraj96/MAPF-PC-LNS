@@ -116,6 +116,24 @@ struct TemporalOrder
     int task_time;
 };
 
+struct CopySolution
+{
+    vector<Path> task_paths_refs;
+    vector<Agent> agent_refs;
+    vector<vector<int>> task_assign_refs;
+    vector<pair<int,int>> precedence_refs;
+    vector<pair<int,int>> old_distances; // to save old distances of ct tasks
+    vector<pair<int,int>> new_distances; // to save new distances of ct tasks
+
+    CopySolution(vector<Path> path_refs, vector<Agent> a_refs, vector<vector<int>> assign_refs, vector<pair<int,int>> p_refs)
+        : task_paths_refs(path_refs)
+        , agent_refs(a_refs)
+        , task_assign_refs(assign_refs)
+        , precedence_refs(p_refs) 
+    {}
+};
+
+
 class Solution
 {
   public:
@@ -198,7 +216,7 @@ class Solution
 
     void joinPaths(vector<int> agents_to_compute)
     {
-        for (int agent : agents_to_compute) { // going over each agent
+        for (int agent : agents_to_compute) { // for prepnext goes over conflicts, otherwise all agents
 
             assert(getAssignedTaskSize(agent) ==
                    (int)agents[agent].path_planner->goal_locations.size());
@@ -567,11 +585,11 @@ class LNS
                                 vector<pair<int, int>>* precedence_constraints);
     void Online_prep_build_constraint_table(ConstraintTable& constraint_table, int task, set<int> new_conflict_tasks, set<int> conflicted_tasks);
     void computeRegret();
-    void OnlinecomputeRegret(int task, int earlyT);
+    void OnlinecomputeRegret(int task, int earlyT, CopySolution* cp_soln);
     void regretBasedReinsertion();
     void computeRegretForMetaTask(deque<int> meta_task);
     void computeRegretForTask(int task);
-    void OnlinecomputeRegretForTask(int task, int earlyT);
+    void OnlinecomputeRegretForTask(int task, int earlyT, CopySolution* cp_soln);
     void commitBestRegretTask(Regret best_regret);
     void computeRegretForTaskWithAgent(
       int task,
@@ -580,6 +598,14 @@ class LNS
       int latest_timestep,
       vector<pair<int, int>>* precedence_constraints,
       pairing_heap<Utility, compare<Utility::compare_node>>* service_times);
+    void OnlinecomputeRegretForTaskWithAgent(
+      int task,
+      int agent,
+      int earliest_timestep,
+      int latest_timestep,
+      vector<pair<int, int>>* precedence_constraints,
+      pairing_heap<Utility, compare<Utility::compare_node>>* service_times,
+      CopySolution* cp_soln);
     Utility insertTask(int task,
                        int agent,
                        int task_position,
