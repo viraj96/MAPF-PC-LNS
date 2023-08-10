@@ -122,15 +122,26 @@ struct CopySolution
     vector<Agent> agent_refs;
     vector<vector<int>> task_assign_refs;
     vector<pair<int,int>> precedence_refs;
-    vector<pair<int,int>> old_distances; // to save old distances of ct tasks
-    vector<pair<int,int>> new_distances; // to save new distances of ct tasks
+    map<int, int> conflicted_pathsize_ref;
+    unordered_map<int,int> new_distances;
 
-    CopySolution(vector<Path> path_refs, vector<Agent> a_refs, vector<vector<int>> assign_refs, vector<pair<int,int>> p_refs)
+    CopySolution(vector<Path> path_refs, vector<Agent> a_refs, vector<vector<int>> assign_refs, vector<pair<int,int>> p_refs, map<int, int> ct_path_ref)
         : task_paths_refs(path_refs)
         , agent_refs(a_refs)
         , task_assign_refs(assign_refs)
-        , precedence_refs(p_refs) 
+        , precedence_refs(p_refs)
+        , conflicted_pathsize_ref(ct_path_ref) 
     {}
+
+    void clear_all()
+    {
+        task_paths_refs.clear();
+        agent_refs.clear();
+        task_assign_refs.clear();
+        precedence_refs.clear();
+        conflicted_pathsize_ref.clear();
+        new_distances.clear();
+    }
 };
 
 
@@ -585,11 +596,11 @@ class LNS
                                 vector<pair<int, int>>* precedence_constraints);
     void Online_prep_build_constraint_table(ConstraintTable& constraint_table, int task, set<int> new_conflict_tasks, set<int> conflicted_tasks);
     void computeRegret();
-    void OnlinecomputeRegret(int task, int earlyT, CopySolution* cp_soln);
+    void OnlinecomputeRegret(int task, int earlyT, CopySolution* cp_soln, unordered_map<int, vector<pair<int,int>>> cancelled_positions);
     void regretBasedReinsertion();
     void computeRegretForMetaTask(deque<int> meta_task);
     void computeRegretForTask(int task);
-    void OnlinecomputeRegretForTask(int task, int earlyT, CopySolution* cp_soln);
+    void OnlinecomputeRegretForTask(int task, int earlyT, CopySolution* cp_soln, unordered_map<int, vector<pair<int,int>>> cancelled_positions);
     void commitBestRegretTask(Regret best_regret);
     void computeRegretForTaskWithAgent(
       int task,
@@ -605,7 +616,9 @@ class LNS
       int latest_timestep,
       vector<pair<int, int>>* precedence_constraints,
       pairing_heap<Utility, compare<Utility::compare_node>>* service_times,
-      CopySolution* cp_soln);
+      CopySolution* cp_soln,
+      unordered_map<int, vector<pair<int,int>>> cancelled_positions,
+      vector<pair<pair<int,int>,int>>* distances);
     Utility insertTask(int task,
                        int agent,
                        int task_position,
