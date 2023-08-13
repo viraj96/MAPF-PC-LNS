@@ -26,6 +26,7 @@ struct Utility
 {
     int agent, task_position, task, endtime; // adding task capability since not using Regret
     double value;
+    Path saved_path_task;
 
     Utility()
     {
@@ -34,14 +35,16 @@ struct Utility
         value = std::numeric_limits<double>::max();
         task = -1;
         endtime = -1;
+        saved_path_task = Path();
     }
 
-    Utility(int agent, int task_position, int task,int time, double value) // adding task capability
+    Utility(int agent, int task_position, int task,int time, double value, Path temp) // adding task capability
       : agent(agent)
       , task_position(task_position)
       , task(task) // appending constructor for task
       , endtime(time)
       , value(value)
+      , saved_path_task(temp)
     {}
 
     struct compare_node
@@ -57,13 +60,15 @@ struct Regret
 {
     int task, agent, task_position, endtime;
     double value;
+    Path saved_path_task;
 
-    Regret(int task, int agent, int task_position, int time, double value)
+    Regret(int task, int agent, int task_position, int time, double value, Path temp)
       : task(task)
       , agent(agent)
       , task_position(task_position)
       , endtime(time)
       , value(value)
+      , saved_path_task(temp)
     {}
 
     struct compare_node
@@ -236,8 +241,10 @@ class Solution
             for (int i = 0; i < getAssignedTaskSize(agent); i++) { // going over each task in sequence
                 if (i == 0) // first task
                     agents[agent].path.path.push_back(agents[agent].task_paths[i].front());
+                int task = getAgentGlobalTasks(agent, i);
+                // PLOGI <<"Agent path size current " << (int)agents[agent].path.size() - 1 << " Begin time of next task " << agents[agent].task_paths[i].begin_time << " for task " << task; // FIXME: delete
                 assert((int)agents[agent].path.size() - 1 ==
-                       agents[agent].task_paths[i].begin_time);
+                       agents[agent].task_paths[i].begin_time); // assert that each consecutive task has its previous task end time as begin time
                 for (int j = 1; j < (int)agents[agent].task_paths[i].size(); j++) // not sure
                     agents[agent].path.path.push_back(agents[agent].task_paths[i].at(j));
                 agents[agent].path.timestamps.push_back(agents[agent].path.size() - 1);
@@ -430,26 +437,56 @@ class Solution
         return islands;
     }
 
-    pair<vector<int>, vector<TemporalOrder>> getIslandOrder(set<int> island)
+    pair<vector<int>, vector<TemporalOrder>> getIslandOrder(set<int> island, const Instance* instance)
     {
         // setup the nodes for the tasks
         vector<TemporalOrder> local; // do I want this available outside? (use a pointer?)
 
-        for(auto t: island)
+        // for(auto t: island)
+        // {
+        //     TemporalOrder o;
+        //     o.task = t;
+        //     // for(pair<int,int> pc: precedence_constraints) // TODO: issue with pc, had to use set, can go back to vector with task depen
+        //     // {
+        //     //     if (pc.first == t)
+        //     //     {
+        //     //         if(island.find(pc.second) != island.end())
+        //     //             o.successors.insert(pc.second);// o.successors.push_back(pc.second);
+        //     //     }
+        //     //     if (pc.second == t)
+        //     //     {
+        //     //         if(island.find(pc.first) != island.end())
+        //     //             o.predecessors.insert(pc.first);// o.predecessors.push_back(pc.first);
+        //     //     }
+        //     // }
+        //     local.push_back(o);
+        // }
+        unordered_map<int, vector<int>> successor_depen = instance->getTaskDependencies();
+        unordered_map<int, vector<int>> ancestor_depen = instance->getAncestorToSuccessorDependencies();
+        for(int curr : island)
         {
             TemporalOrder o;
-            o.task = t;
-            for(pair<int,int> pc: precedence_constraints) // TODO: issue with pc, had to use set, can go back to vector with task depen
+            o.task = curr;
+            if(successor_depen.find(o.task) != successor_depen.end())
             {
-                if (pc.first == t)
+                vector<int> ancestors = successor_depen[o.task];
+                for(int anc: ancestors)
                 {
-                    if(island.find(pc.second) != island.end())
-                        o.successors.insert(pc.second);// o.successors.push_back(pc.second);
+                    if(neighbor.conflicted_tasks.find(anc) != neighbor.conflicted_tasks.end())
+                    {
+                        o.predecessors.insert(anc);
+                    }
                 }
-                if (pc.second == t)
+            }
+            if(ancestor_depen.find(o.task) != ancestor_depen.end())
+            {
+                vector<int> childs = ancestor_depen[o.task];
+                for(int succ : childs)
                 {
-                    if(island.find(pc.first) != island.end())
-                        o.predecessors.insert(pc.first);// o.predecessors.push_back(pc.first);
+                    if(neighbor.conflicted_tasks.find(succ) != neighbor.conflicted_tasks.end())
+                    {
+                        o.successors.insert(succ);
+                    }
                 }
             }
             local.push_back(o);
