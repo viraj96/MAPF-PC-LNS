@@ -129,6 +129,7 @@ struct CopySolution
     vector<pair<int,int>> precedence_refs;
     map<int, int> conflicted_pathsize_ref;
     unordered_map<int,int> new_distances;
+    bool no_regret_found = false; // adding a check at island level so that we can keep the analysis moving forward
 
     CopySolution(vector<Path> path_refs, vector<Agent> a_refs, vector<vector<int>> assign_refs, vector<pair<int,int>> p_refs, map<int, int> ct_path_ref)
         : task_paths_refs(path_refs)

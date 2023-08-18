@@ -241,86 +241,100 @@ LNS::run()
 
                                 // compute its regret based on the earilest time
                                 OnlinecomputeRegret(t, earlyT, &cp_soln, cancelled_positions); // change this function to take in another earliest time as constraint
-                                Regret best_regret = solution.neighbor.regret_max_heap.top();
-                                IslandSums += best_regret.value;
-                                save_regrets.push_back(make_pair(t, best_regret));
-
-                                // get back time and position
-                                // save its time in its struct
-                                curr->task_time = best_regret.endtime; // using begin_time  + task path size to compute this is in insertTask()
-                                PLOGD << "Task = " << t <<" Agent = " << best_regret.agent << " Task Pos = " << best_regret.task_position << " End Time = " << curr->task_time;
-
-                                // update everything
-                                // I need to insert it at the exact location
-                                vector<int> * task_assign_vec = &(cp_soln.task_assign_refs[best_regret.agent]);
-                                task_assign_vec->insert(task_assign_vec->begin() + best_regret.task_position, t); // updating task assignment with agent
-                                // update the task_path_refs cp_soln with task time.
-                                Path* path_ptr = &(cp_soln.task_paths_refs[t]);
-                                *path_ptr = best_regret.saved_path_task;
-                                vector<int> tasks_for_affected_agent = cp_soln.task_assign_refs[best_regret.agent];
-
-                                // update the precedence constraints
-                                vector<pair<int,int>>* prec_constr = &(cp_soln.precedence_refs);
-                                if(best_regret.task_position > 0 && best_regret.task_position < cp_soln.task_assign_refs[best_regret.task_position].size())
+                                if (!cp_soln.no_regret_found && (islands.size() > 1)) // check if we got back no regret and there are more islands
                                 {
-                                    int prev_task = tasks_for_affected_agent[best_regret.task_position-1];
-                                    int next_task = tasks_for_affected_agent[best_regret.task_position+1];
-                                    prec_constr->erase(std::remove_if(prec_constr->begin(),
-                                                                            prec_constr->end(),
-                                                                            [prev_task, next_task](pair<int, int> x) {
-                                                                                return x.first == prev_task &&
-                                                                                        x.second == next_task;
-                                                                            }),
-                                                            prec_constr->end());
-                                    prec_constr->push_back(make_pair(prev_task, best_regret.task));
-                                    prec_constr->push_back(make_pair(best_regret.task, next_task));
-
-                                }
-                                else if(best_regret.task_position == 0)
-                                {
-                                    int next_task = tasks_for_affected_agent[best_regret.task_position+1];
-                                    prec_constr->push_back(make_pair(best_regret.task, next_task));
-                                }
-                                else if(best_regret.task_position == cp_soln.task_assign_refs[best_regret.agent].size()-1) // because we already inserted task in task_assign
-                                {
-                                    int prev_task = tasks_for_affected_agent[best_regret.task_position-1];
-                                    prec_constr->push_back(make_pair(prev_task, best_regret.task));
-                                }
-
-                                // clear agent path timestamps to fill in again
-                                vector<int>* agent_ref_path_times = &(cp_soln.agent_refs[best_regret.agent].path.timestamps);
-                                agent_ref_path_times->clear();
-
-
-                                for(int j = 0; j < tasks_for_affected_agent.size(); j++)
-                                {
-                                    if(j > best_regret.task_position)
-                                    {
-                                        int prev_task = tasks_for_affected_agent[j-1];
-                                        // PLOGI << "prev task when updating " << prev_task;
-                                        int affected_task = tasks_for_affected_agent[j];
-                                        // PLOGI << "affected task = " << affected_task;
-                                        // PLOGI <<"prev task end time = " << cp_soln.task_paths_refs[prev_task].end_time();
-                                        cp_soln.task_paths_refs[affected_task].begin_time = cp_soln.task_paths_refs[prev_task].end_time();
-                                        // PLOGI <<"new end time of affected task = " << cp_soln.task_paths_refs[affected_task].end_time();
-                                    }
-                                    // fixing all paths (DONT NEED THIS ?)
-                                    agent_ref_path_times->push_back(cp_soln.task_paths_refs[tasks_for_affected_agent[j]].end_time());
-                                }
-
-                                // what else to update? TODO:
-                                vector<Path>* agent_ref_tp_vec = &(cp_soln.agent_refs[best_regret.agent].task_paths); // FIXME: ?
-                                agent_ref_tp_vec->insert(agent_ref_tp_vec->begin() + best_regret.task_position, best_regret.saved_path_task);
-                                // vector<int>* agent_time_vec = &(cp_soln.agent_refs[best_regret.agent].path.timestamps);
-                                // agent_time_vec->insert(agent_time_vec->begin() + best_regret.task_position, cp_soln.task_paths_refs[best_regret.task].end_time()); 
-
-                                // PLOGW << "Task path size after update in agent ref " <<cp_soln.agent_refs[best_regret.agent].task_paths.size();
-                                PLOGI <<"Task assign for agent " << best_regret.agent << " is " << cp_soln.task_assign_refs[best_regret.agent].size();
-                                PLOGI <<"Path size for task " << best_regret.task << " is " << cp_soln.task_paths_refs[best_regret.task].size();
-                                // PLOGW <<"Previous task end time " << cp_soln.agent_refs[best_regret.agent].task_paths[best_regret.task_position - 1].end_time() ;
-                                PLOGI <<"Task new begin time " << cp_soln.task_paths_refs[best_regret.task].begin_time << " and task new end time " << cp_soln.task_paths_refs[best_regret.task].end_time();
-                                PLOGI << "Agent new task sequence end time " <<cp_soln.agent_refs[best_regret.agent].path.timestamps[cp_soln.agent_refs[best_regret.agent].path.timestamps.size()-1];
+                                    Regret best_regret = solution.neighbor.regret_max_heap.top();
+                                    IslandSums += best_regret.value;
+                                    save_regrets.push_back(make_pair(t, best_regret));
                                 
+                                    // get back time and position
+                                    // save its time in its struct
+                                    curr->task_time = best_regret.endtime; // using begin_time  + task path size to compute this is in insertTask()
+                                    PLOGD << "Task = " << t <<" Agent = " << best_regret.agent << " Task Pos = " << best_regret.task_position << " End Time = " << curr->task_time;
+
+                                    // update everything
+                                    // I need to insert it at the exact location
+                                    vector<int> * task_assign_vec = &(cp_soln.task_assign_refs[best_regret.agent]);
+                                    task_assign_vec->insert(task_assign_vec->begin() + best_regret.task_position, t); // updating task assignment with agent
+                                    // update the task_path_refs cp_soln with task time.
+                                    Path* path_ptr = &(cp_soln.task_paths_refs[t]);
+                                    *path_ptr = best_regret.saved_path_task;
+                                    vector<int> tasks_for_affected_agent = cp_soln.task_assign_refs[best_regret.agent];
+
+                                    // update the precedence constraints
+                                    vector<pair<int,int>>* prec_constr = &(cp_soln.precedence_refs);
+                                    if(best_regret.task_position > 0 && best_regret.task_position < cp_soln.task_assign_refs[best_regret.task_position].size())
+                                    {
+                                        int prev_task = tasks_for_affected_agent[best_regret.task_position-1];
+                                        int next_task = tasks_for_affected_agent[best_regret.task_position+1];
+                                        prec_constr->erase(std::remove_if(prec_constr->begin(),
+                                                                                prec_constr->end(),
+                                                                                [prev_task, next_task](pair<int, int> x) {
+                                                                                    return x.first == prev_task &&
+                                                                                            x.second == next_task;
+                                                                                }),
+                                                                prec_constr->end());
+                                        prec_constr->push_back(make_pair(prev_task, best_regret.task));
+                                        prec_constr->push_back(make_pair(best_regret.task, next_task));
+
+                                    }
+                                    else if(best_regret.task_position == 0)
+                                    {
+                                        int next_task = tasks_for_affected_agent[best_regret.task_position+1];
+                                        prec_constr->push_back(make_pair(best_regret.task, next_task));
+                                    }
+                                    else if(best_regret.task_position == cp_soln.task_assign_refs[best_regret.agent].size()-1) // because we already inserted task in task_assign
+                                    {
+                                        int prev_task = tasks_for_affected_agent[best_regret.task_position-1];
+                                        prec_constr->push_back(make_pair(prev_task, best_regret.task));
+                                    }
+
+                                    // clear agent path timestamps to fill in again
+                                    vector<int>* agent_ref_path_times = &(cp_soln.agent_refs[best_regret.agent].path.timestamps);
+                                    agent_ref_path_times->clear();
+
+
+                                    for(int j = 0; j < tasks_for_affected_agent.size(); j++)
+                                    {
+                                        if(j > best_regret.task_position)
+                                        {
+                                            int prev_task = tasks_for_affected_agent[j-1];
+                                            // PLOGI << "prev task when updating " << prev_task;
+                                            int affected_task = tasks_for_affected_agent[j];
+                                            // PLOGI << "affected task = " << affected_task;
+                                            // PLOGI <<"prev task end time = " << cp_soln.task_paths_refs[prev_task].end_time();
+                                            cp_soln.task_paths_refs[affected_task].begin_time = cp_soln.task_paths_refs[prev_task].end_time();
+                                            // PLOGI <<"new end time of affected task = " << cp_soln.task_paths_refs[affected_task].end_time();
+                                        }
+                                        // fixing all paths (DONT NEED THIS ?)
+                                        agent_ref_path_times->push_back(cp_soln.task_paths_refs[tasks_for_affected_agent[j]].end_time());
+                                    }
+
+                                    // what else to update?
+                                    vector<Path>* agent_ref_tp_vec = &(cp_soln.agent_refs[best_regret.agent].task_paths);
+                                    agent_ref_tp_vec->insert(agent_ref_tp_vec->begin() + best_regret.task_position, best_regret.saved_path_task);
+                                    // vector<int>* agent_time_vec = &(cp_soln.agent_refs[best_regret.agent].path.timestamps);
+                                    // agent_time_vec->insert(agent_time_vec->begin() + best_regret.task_position, cp_soln.task_paths_refs[best_regret.task].end_time()); 
+
+                                    // PLOGW << "Task path size after update in agent ref " <<cp_soln.agent_refs[best_regret.agent].task_paths.size();
+                                    PLOGI <<"Task assign for agent " << best_regret.agent << " is " << cp_soln.task_assign_refs[best_regret.agent].size();
+                                    PLOGI <<"Path size for task " << best_regret.task << " is " << cp_soln.task_paths_refs[best_regret.task].size();
+                                    // PLOGW <<"Previous task end time " << cp_soln.agent_refs[best_regret.agent].task_paths[best_regret.task_position - 1].end_time() ;
+                                    PLOGI <<"Task new begin time " << cp_soln.task_paths_refs[best_regret.task].begin_time << " and task new end time " << cp_soln.task_paths_refs[best_regret.task].end_time();
+                                    PLOGI << "Agent new task sequence end time " <<cp_soln.agent_refs[best_regret.agent].path.timestamps[cp_soln.agent_refs[best_regret.agent].path.timestamps.size()-1];
+                                }
+                                else if(islands.size() == 1 && cp_soln.no_regret_found)
+                                {
+                                    PLOGE << "Last island but couldn't find a placement for task, hence aborting the program!";
+                                    assert(!cp_soln.no_regret_found);
+                                }
+                                else
+                                {
+                                    PLOGW << "Moving on to next island since we got no regret back";
+                                    move_next = true;
+                                    Regret temp = Regret(t, -1, -1, -1, -100, Path());
+                                    save_regrets.push_back(make_pair(t, temp)); // to help with island sum calculation
+                                }
                             }
 
                             // Compute Distance change and then invoke the same island again ...
@@ -333,7 +347,7 @@ LNS::run()
                                 {
                                     if(n.first == old)
                                     {
-                                        old_sum += n.second; // FIXME: to only include this island's distances;
+                                        old_sum += n.second; // to only include this island's distances;
                                     }
                                 }
                             }
@@ -351,7 +365,6 @@ LNS::run()
                                 // cp_soln.clear_all();
                                 cp_soln = CopySolution(solution.paths, solution.agents, solution.task_assignments, solution.precedence_constraints, solution.neighbor.conflicted_tasks_path_size);
                                 // add the regret to cancelled positions map
-                                // TODO:
                                 for(pair<int, Regret> reg : save_regrets)
                                 {
                                     if(island[0] == reg.first)
@@ -1742,41 +1755,55 @@ LNS::OnlinecomputeRegretForTask(int task, int earlyT, CopySolution* cp_soln, uno
             OnlinecomputeRegretForTaskWithAgent(
             task, agent, earliest_timestep, latest_timestep, &precedence_constraints, &service_times, cp_soln, cancelled_positions, &distances);} // TODO: send in both cancelled positions and distance vector
 
-        Utility best_utility = service_times.top();
-        service_times.pop();
-
-        int a = best_utility.agent;
-        int tp = best_utility.task_position;
-        for(pair<pair<int,int>,int> dist : distances)
+        // TODO: Need to be able to handle the scene when we can't choose a regret that allows for distance to satisfy
+        try{
+            if(service_times.empty())
+                throw 20;
+        }
+        catch(int e)
         {
-            pair<int,int> pack = dist.first;
-            if(pack.first == a)
+            PLOGE <<"Failed to get a regret!";
+            cp_soln->no_regret_found = true;
+        }
+
+        if(!cp_soln->no_regret_found)
+        {
+            Utility best_utility = service_times.top();
+            service_times.pop();
+
+            int a = best_utility.agent;
+            int tp = best_utility.task_position;
+            for(pair<pair<int,int>,int> dist : distances)
             {
-                if(pack.second == tp)
+                pair<int,int> pack = dist.first;
+                if(pack.first == a)
                 {
-                    cp_soln->new_distances[task] = dist.second; // this works?
+                    if(pack.second == tp)
+                    {
+                        cp_soln->new_distances[task] = dist.second; // this works?
+                    }
                 }
             }
-        }
 
-        if (!service_times.empty()){
-            Utility second_best_utility = service_times.top();
-            Regret regret(task,
-                        best_utility.agent,
-                        best_utility.task_position,
-                        best_utility.endtime,
-                        second_best_utility.value - best_utility.value,
-                        best_utility.saved_path_task);
-            solution.neighbor.regret_max_heap.push(regret);
-        }
-        else{
-            Regret regret(task,
-                        best_utility.agent,
-                        best_utility.task_position,
-                        best_utility.endtime,
-                        best_utility.value,
-                        best_utility.saved_path_task); // WHAT should the second value be?
-            solution.neighbor.regret_max_heap.push(regret);
+            if (!service_times.empty()){ // handling when there are more than 2 regrets returned
+                Utility second_best_utility = service_times.top();
+                Regret regret(task,
+                            best_utility.agent,
+                            best_utility.task_position,
+                            best_utility.endtime,
+                            second_best_utility.value - best_utility.value,
+                            best_utility.saved_path_task);
+                solution.neighbor.regret_max_heap.push(regret);
+            }
+            else{ // handling when only one regret is returned
+                Regret regret(task,
+                            best_utility.agent,
+                            best_utility.task_position,
+                            best_utility.endtime,
+                            best_utility.value,
+                            best_utility.saved_path_task); // WHAT should the second value be?
+                solution.neighbor.regret_max_heap.push(regret);
+            }
         }
     }
 }
