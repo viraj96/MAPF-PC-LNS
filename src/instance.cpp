@@ -150,7 +150,7 @@ Instance::loadAgentsAndTasks()
         int i, j;
         tie(i, j) = dependency;
         task_dependencies[j].push_back(i);
-        // adding another design change
+        // adding a design change
         ancestor_to_successor_dependency[i].push_back(j);
     }
 

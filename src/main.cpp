@@ -32,7 +32,7 @@ main(int argc, char** argv)
     desc.add_options()(
       "maxIterations,i", po::value<int>()->default_value(0), "Maximum number of iterations");
     desc.add_options()("severity,d", po::value<int>()->default_value(0), "Debugging level");
-    // adding another flag for switching to combo solution
+    // adding another flag for switching to combo solution ->string value (can be changed later to some other format)
     desc.add_options()("combo_sol,c", po::value<string>()->default_value("original"), "Switch to combination solution");
 
     po::variables_map vm;
@@ -48,9 +48,9 @@ main(int argc, char** argv)
     plog::get()->setMaxSeverity(static_cast<plog::Severity>(vm["severity"].as<int>()));
 
     /* srand((int)time(0)); */
-    // srand(5); // 2 fault
-    srand(7); // combo large fault
-    // srand(8);
+    // srand(5); // initial two conflict fault
+    srand(7); // iniital large conflict fault
+    // srand(8); // initial large conflict fault
     // srand((int)time(0));
 
     Instance instance(vm["map"].as<string>(),

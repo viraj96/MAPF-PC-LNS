@@ -19,14 +19,14 @@ struct Agent
     {
         path_planner = new MultiLabelSpaceTimeAStar(instance, id);
     }
-    // ~Agent() { delete path_planner; }
+    // ~Agent() { delete path_planner; } // Delete this since it was originally throwing an error
 };
 
 struct Utility
 {
-    int agent, task_position, task, endtime; // adding task capability since not using Regret
+    int agent, task_position, task, endtime; // Adding 1. task 2. end time as additional variables
     double value;
-    Path saved_path_task;
+    Path saved_path_task; // adding 3. task Path
 
     Utility()
     {
@@ -42,9 +42,9 @@ struct Utility
       : agent(agent)
       , task_position(task_position)
       , task(task) // appending constructor for task
-      , endtime(time)
+      , endtime(time) // appending constructor for endtime
       , value(value)
-      , saved_path_task(temp)
+      , saved_path_task(temp) // appending constructor for Path
     {}
 
     struct compare_node
@@ -58,6 +58,8 @@ struct Utility
 
 struct Regret
 {
+    // adding 1. end time (will come from utility)
+    // 2. task Path (will come from utility)
     int task, agent, task_position, endtime;
     double value;
     Path saved_path_task;
@@ -66,9 +68,9 @@ struct Regret
       : task(task)
       , agent(agent)
       , task_position(task_position)
-      , endtime(time)
+      , endtime(time) // appending constructor with end time
       , value(value)
-      , saved_path_task(temp)
+      , saved_path_task(temp) // appending constructor with task Path
     {}
 
     struct compare_node
@@ -87,7 +89,7 @@ struct Neighbor
     pairing_heap<Regret, compare<Regret::compare_node>> regret_max_heap;
 };
 
-struct Combination
+struct Combination // Currently not being used, but can be useful for combinations of regrets
 {
     vector<Utility> combo_bucket; // storing all the utility from each task
     int rank_sum = 0;
@@ -98,7 +100,7 @@ struct Combination
         return (rank_sum < ob.rank_sum);
     }
 };
-struct Matching
+struct Matching // currently not being used but can be useful for combination of regrets
 {
     vector<Combination> combination_list; // store all the combinations
     vector<pair<int, vector<Utility>>> all_services; // store all the service times
@@ -112,7 +114,7 @@ struct Matching
     }
 };
 
-struct TemporalOrder
+struct TemporalOrder // struct to save information about a task in an island
 {
     int task;
     set<int> predecessors;
@@ -121,7 +123,7 @@ struct TemporalOrder
     int task_time;
 };
 
-struct CopySolution
+struct CopySolution // struct to save copy of current solution class methods for use within an island
 {
     vector<Path> task_paths_refs;
     vector<Agent> agent_refs;
@@ -241,7 +243,7 @@ class Solution
             for (int i = 0; i < getAssignedTaskSize(agent); i++) { // going over each task in sequence
                 if (i == 0) // first task
                     agents[agent].path.path.push_back(agents[agent].task_paths[i].front());
-                int task = getAgentGlobalTasks(agent, i);
+                // int task = getAgentGlobalTasks(agent, i);
                 // PLOGI <<"Agent path size current " << (int)agents[agent].path.size() - 1 << " Begin time of next task " << agents[agent].task_paths[i].begin_time << " for task " << task; // FIXME: delete
                 assert((int)agents[agent].path.size() - 1 ==
                        agents[agent].task_paths[i].begin_time); // assert that each consecutive task has its previous task end time as begin time
@@ -251,6 +253,7 @@ class Solution
             }
         }
     }
+    // new online join path function that uses the input as set instead of vector
     void OnlinejoinPaths(set<int> agents_to_compute)
     {
         for (int agent : agents_to_compute) { // going over each agent
@@ -273,27 +276,53 @@ class Solution
 
     vector<set<int>> getConflictIslands(const Instance* instance)
     {
-        // how do you find out relations, and then order them within?
-        // choose something - go over both task dependencies and task ancestors
-        // if you find something add it to its list. then look at the ones in it and do the same
-        // start from beginning for the left over conflict tasks
+        /*
+            Inputs:
+                1. const instance class object
+            Outputs:
+                1. vector of set of integers
+
+            Description: The function assists in creation of task islands, where each task within an island
+                is temporally related to another task. It does so by looping over the current conflict
+                set, and tries to find if any other task is a successor or a predecessor of it. 
+                E.g. 3 -> 41 -> 15 -> 12 is a task order. If 3 and 12 are in conflict set, then they will
+                make an island together.
+        */
+
+
+        /*
+        A. Setup for the for loop
+        */
+        // get successor to ancestor list
         unordered_map<int, vector<int>> task_depen = instance->getTaskDependencies();
+        // get ancestor to successor list
         unordered_map<int, vector<int>> ancestor_depen = instance->getAncestorToSuccessorDependencies();
-        set<int> local_ct_copy = neighbor.conflicted_tasks; // will need to remove any that exist from prev iteration?
+        set<int> local_ct_copy = neighbor.conflicted_tasks;
+        // new vector to save islands
         vector<set<int>> islands; // can also call this from main loop so we can save prev iteration islands
+
+        /*
+        B. For loop for looping over conflict set
+        */
         for(auto it: neighbor.conflicted_tasks)
         {   
+            /*
+            B1. If islands is not initiated, then this task will make a "new" island
+            */
             if (islands.empty())
             {
-                // first iteration
+                // B1.1 Add the task to a new island
                 set<int> local_set;
                 local_set.insert(it);
-                // remove from local ct copy
+
+                // B1.2 remove the task from local ct copy, since we already made a new island no need to keep it active for others
                 local_ct_copy.erase(it);
+
+                // B1.3 find any other tasks in the conflict set that are temporally related to it
                 vector<int> found;
                 for (auto in: local_ct_copy)
                 {
-                    // find task in successors
+                    // find in its ancestors
                     
                     if (task_depen.find(it) != task_depen.end())
                     {
@@ -306,7 +335,7 @@ class Solution
                             }
                         }
                     }
-                    // find task in ancestors
+                    // find in its successors
                     if (ancestor_depen.find(it) != ancestor_depen.end())
                     {
                         vector<int> successors = ancestor_depen[it];
@@ -319,28 +348,35 @@ class Solution
                         }
                     }
                 }
-                // for each dependency found above remove from local_ct
-                // push local set to islands
+
+                // B1.4 for each dependency found above remove from local_ct
+                
                 for(auto f: found)
                 {
                     local_set.insert(f);
                     local_ct_copy.erase(f);
                 }
+                // B1.5 push local set to islands
                 islands.push_back(local_set);
-                continue; // don't need it
             }
             else
             {
-                // is this not in local_ct_copy? if yes means its already a part of island
+                /*
+                B2. means islands already exist at the turn of this task, so check if it already exists
+                    in an island or if it belongs to some island
+                */
+
+                // B2.1 if yes means its already a part of island
                 if (local_ct_copy.find(it) == local_ct_copy.end())
                 {
                     continue;
                 }
                 else
                 {
-                    // if not then needs to form a new island or join an existing island!
+                    // B2.2 if not then needs to form a new island or join an existing island!
                     bool exist_flag = false;
-                    // first check existing islands
+
+                    // B2.3 first check existing islands to see if it can be added to an island
                     for(auto ild = islands.begin(); ild != islands.end(); ild++) // isld  = each island
                     {
                         set<int> isld = islands[distance(islands.begin(), ild)]; // C++ dont allow to update sets
@@ -382,6 +418,8 @@ class Solution
                         islands.insert(ild, local_set); // pushing the local copy of the set back to the vector
                     }
 
+                    // B2.4 If not means we have to make a new island for the task
+                    // operations similar to B1
                     if (!exist_flag)
                     {
                         // make a new island
@@ -432,72 +470,98 @@ class Solution
 
         }
 
-        // for each set find the correct order, SKIP FOR NOW
+        // ordering can be done HERE, skip for now
 
         return islands;
     }
 
     pair<vector<int>, vector<TemporalOrder>> getIslandOrder(set<int> island, const Instance* instance)
     {
-        // setup the nodes for the tasks
-        vector<TemporalOrder> local; // do I want this available outside? (use a pointer?)
+        /*
+            Inputs: 
+                1. island set
+                2. const instance class object
+            Outputs:
+                2. A pair of two vectors
+                    vector 1 - ordered list of tasks
+                    vector 2 - unordered list of tasks with important information
+            
+            Description: This function assists in determining any temporal order between the tasks within an island.
+                It also saves some important information about the tasks which is used in LNS loop
+        */
 
-        // for(auto t: island)
-        // {
-        //     TemporalOrder o;
-        //     o.task = t;
-        //     // for(pair<int,int> pc: precedence_constraints) // TODO: issue with pc, had to use set, can go back to vector with task depen
-        //     // {
-        //     //     if (pc.first == t)
-        //     //     {
-        //     //         if(island.find(pc.second) != island.end())
-        //     //             o.successors.insert(pc.second);// o.successors.push_back(pc.second);
-        //     //     }
-        //     //     if (pc.second == t)
-        //     //     {
-        //     //         if(island.find(pc.first) != island.end())
-        //     //             o.predecessors.insert(pc.first);// o.predecessors.push_back(pc.first);
-        //     //     }
-        //     // }
-        //     local.push_back(o);
-        // }
+        /* 
+        A. Setup the nodes for the tasks
+        */
+        vector<TemporalOrder> local;
+        // get list of ancestors for each task
         unordered_map<int, vector<int>> successor_depen = instance->getTaskDependencies();
+        // get list of successors for each task
         unordered_map<int, vector<int>> ancestor_depen = instance->getAncestorToSuccessorDependencies();
+
+        /*
+        B. For loop to go over each task in the island
+        */
         for(int curr : island)
         {
+            /*
+            B1. Make its temporal struct
+            */
             TemporalOrder o;
             o.task = curr;
+
+            /*
+            B2. We only care about tasks that have a temporal relation
+            */
+
+            // B2.1 check if it has any ancestors
             if(successor_depen.find(o.task) != successor_depen.end())
             {
                 vector<int> ancestors = successor_depen[o.task];
+                // For each of its ancestors check if they are part of the conflict set
                 for(int anc: ancestors)
                 {
                     if(neighbor.conflicted_tasks.find(anc) != neighbor.conflicted_tasks.end())
                     {
-                        o.predecessors.insert(anc);
+                        o.predecessors.insert(anc); // append the ancestor to its temporal order predecessor set
                     }
                 }
             }
+
+            // B2.2 check if it has any successors
             if(ancestor_depen.find(o.task) != ancestor_depen.end())
             {
                 vector<int> childs = ancestor_depen[o.task];
+                // For each of its successors check if they are part of the conflict set
                 for(int succ : childs)
                 {
                     if(neighbor.conflicted_tasks.find(succ) != neighbor.conflicted_tasks.end())
                     {
-                        o.successors.insert(succ);
+                        o.successors.insert(succ); // append the successor to its temporal order successors set
                     }
                 }
             }
+
+            /*
+            B3. Finally push this temporal order task to a vector
+            */
             local.push_back(o);
         }
 
-        // topological sort section
+        /*
+        C. Temporal sort or topological sort section
+        */
+
+        /*
+        C1. Setup
+        */
         vector<int> closed;
         set<int> expanded;
         std::queue<int> open;
 
-        // find the children and add them to queue
+        /*
+        C2. Find the children and add them to queue first
+        */ 
         for(auto o : local)
         {
             if (o.successors.size() == 0)
@@ -507,7 +571,9 @@ class Solution
             }
         }
         
-        // topological sort loop
+        /*
+        C3. Queue loop for temporal sort
+        */
         while(!open.empty())
         {
 
@@ -582,6 +648,9 @@ class Solution
             // move to next
         }
 
+        /*
+        D. Reverse the obtained temporal order to: predecessors to successors
+        */
         std::reverse(closed.begin(), closed.end());
 
         return make_pair(closed, local);
@@ -677,174 +746,4 @@ class LNS
             }
         }
     }
-
-    bool ComboTemporalChecker(const Instance* instance, Solution* solution)
-    {
-        unordered_map<int, vector<int>> tasks_depen;
-        tasks_depen = instance->getTaskDependencies(); // this is giving wrong tasks dependencies
-        set<int> local_conflict_check = solution->neighbor.conflicted_tasks;
-        for(pair<int, vector<int>> dependency : instance->getTaskDependencies())
-        {
-            // int child_task = distance(tasks_depen.begin(), it);
-            int child_task = dependency.first;
-            if (local_conflict_check.find(child_task) == local_conflict_check.end()) // we dont want these in conflict set
-            {
-                int child_agent = solution->getAgentWithTask(child_task);
-                int child_index = solution->getLocalTaskIndex(child_agent, child_task);
-                int child_timestamp = solution->agents[child_agent].task_paths[child_index].end_time();
-                vector<int> child_ancestors = dependency.second;
-                for(int ancestor_task: child_ancestors)
-                {
-                    if (local_conflict_check.find(ancestor_task) == local_conflict_check.end()) // we don't want these in conflict set
-                    {
-                        int ancestor_agent = solution->getAgentWithTask(ancestor_task);
-                        int ancestor_index = solution->getLocalTaskIndex(ancestor_agent, ancestor_task);
-                        int ancestor_timestamp = solution->agents[ancestor_agent].task_paths[ancestor_index].end_time();
-                        if (child_timestamp <= ancestor_timestamp)
-                        {
-                            PLOGI <<" Child task = " << child_task <<" Child end timestamp = "<< child_timestamp;
-                            PLOGI <<" Ancestor task = "<< ancestor_task <<" Ancestor end timestamp = "<< ancestor_timestamp;
-                            // PLOGI <<" Regret for Task=" << task << " in Agent = "<< agent << " by pushing local task= " << next_task << " out";
-                            PLOGI <<" Found a TEMPORAL VIOLATION commit phase, child task = " << child_task << " ancestor task = " << ancestor_task;
-                            // value = INT_MIN;
-                            return true; // temporal issue found so move on to next task
-                        }
-                    }
-                }
-            }
-        }
-        return false; // means everything is okay and time for cost check
-    }
-    // TODO - THIS NEEDS to accept a different set of tasks that are AFFECTED by the placement of conflict tasks
-    // IT SHOULD BE A PAIR OF INT AND PATH, pair<int, Path>
-    bool ComboTemporalChecker2(vector<Path>* task_path_refs, set<int> affected_ref)
-    {
-        unordered_map<int, vector<int>> successors = instance.getAncestorToSuccessorDependencies();
-        unordered_map<int, vector<int>> ancestors = instance.getTaskDependencies();
-        for(auto a: affected_ref)
-        {
-            vector<int> current_succesors = successors[a];
-            int task_timestamp = task_path_refs->at(a).end_time();
-            for(int s: current_succesors)
-            {
-                // PLOGI<< "Affected Task = " << a << " Successor = " << s;
-                int successor_timestamp = task_path_refs->at(s).end_time();
-                // PLOGI <<" Successor task = " << s <<" Successor end timestamp = "<< successor_timestamp;
-                // PLOGI <<" Ancestor task = "<< a <<" Ancestor end timestamp = "<< task_timestamp;
-                if(successor_timestamp <= task_timestamp)
-                {
-                    // PLOGI <<" Regret for Task=" << task << " in Agent = "<< agent << " by pushing local task= " << next_task << " out";
-                    PLOGI <<" Found a TEMPORAL VIOLATION, successor task = " << s << " time = " << successor_timestamp << " ancestor task = " << a << " time = " << task_timestamp;
-                    // value = INT_MIN;
-                    return true; // temporal issue found so move on to next task
-                }
-            }
-
-            vector<int> current_ancestors = ancestors[a];
-            for(int an: current_ancestors)
-            {
-                // PLOGI <<"Affected Task = " << a <<" Ancestor = " << an;
-                int ancestor_timestamp = task_path_refs->at(an).end_time();
-                // PLOGI <<" Ancestor task = " << an <<" Ancestor end timestamp = "<< ancestor_timestamp;
-                // PLOGI <<" Succesor task = "<< a <<" Successor end timestamp = "<< task_timestamp;
-                if(task_timestamp <= ancestor_timestamp)
-                {
-                    // PLOGI <<" Regret for Task=" << task << " in Agent = "<< agent << " by pushing local task= " << next_task << " out";
-                    PLOGI <<" Found a TEMPORAL VIOLATION, successor task = " << a <<" time = " << task_timestamp << " ancestor task = " << an <<" time = "<< ancestor_timestamp;
-                    // value = INT_MIN;
-                    return true; // temporal issue found so move on to next task                   
-                }
-            }
-
-
-        }
-        return false; // means no temporal issue will exist
-    }
-
-    bool ComboTemporalChecker3(vector<Path>* task_path_refs)
-    {
-        unordered_map<int, vector<int>> successors = instance.getAncestorToSuccessorDependencies();
-        unordered_map<int, vector<int>> ancestors = instance.getTaskDependencies();
-        for(auto it = task_path_refs->begin(); it != task_path_refs->end(); it++)
-        {
-            int task = distance(task_path_refs->begin(), it);
-            int task_time = task_path_refs->at(task).end_time();
-            if(solution.neighbor.conflicted_tasks.find(task) == solution.neighbor.conflicted_tasks.end())
-            {
-                if(successors.find(task) != successors.end())
-                {
-                    vector<int> current_succ = successors[task];
-                    for(int succ: current_succ)
-                    {
-                        int succ_time = task_path_refs->at(succ).end_time();
-                        PLOGW << task_time <<" " << succ_time;
-                        if (succ_time <= task_time)
-                        {
-                            PLOGE <<" Found a TEMPORAL VIOLATION, successor task = " << succ << " time = " << succ_time << " ancestor task = " << task << " time = " << task_time;
-                            return true;
-                        }
-                    }
-                }
-                if(ancestors.find(task) != ancestors.end())
-                {
-                    vector<int> current_anc = ancestors[task];
-                    for(int anc: current_anc)
-                    {
-                        int anc_time = task_path_refs->at(anc).end_time();
-                        PLOGW << anc_time << " " << task_time;
-                        if (task_time <= anc_time)
-                        {
-                            PLOGE <<" Found a TEMPORAL VIOLATION, successor task = " << task << " time = " << task_time << " ancestor task = " << anc << " time = " << anc_time;
-                            return true;
-                        }
-                    }                   
-                }
-            }
-        }
-        return false; // means no temporal issue will exist
-    }    
-
-    bool ComboCostChecker(const Instance* instance, Solution* solution, Solution* prev_solution)
-    {
-        int Tcosts = 0;
-        for (int taskz = 0; taskz < instance->getTasksNum(); taskz++) {
-            Tcosts += (solution->paths[taskz].end_time() - solution->paths[taskz].begin_time);
-        }
-        PLOGI << " Combination total cost = " << Tcosts;
-        if (prev_solution->sum_of_costs < Tcosts)
-        {
-            PLOGI << "Combination cost is higher, cannot use!" << endl;
-            return true;
-        }
-        else
-        {
-            return false; // means we have a lower cost solution
-        }
-    }
-
-        bool ComboCostChecker2(vector<Path>* task_path_refs)
-    {
-        int Tcosts = 0;
-        int compCosts = 0;
-        for (int taskz = 0; taskz < instance.getTasksNum(); taskz++) {
-            Tcosts += (task_path_refs->at(taskz).end_time() - task_path_refs->at(taskz).begin_time);
-        }
-        for (int a = 0; a < instance.getAgentNum(); a++)
-        {
-            compCosts += solution.agents[a].path.end_time(); // technically would be lower because we haven't updated solution yet
-        }
-        PLOGI << "Combination total cost = " << Tcosts;
-        PLOGI << "Comparative total cost (path end time) =  "<< compCosts;
-        PLOGI << "Previous solution cost = " << previous_solution.sum_of_costs;
-        if (previous_solution.sum_of_costs < Tcosts)
-        {
-            PLOGI << "Combination cost is higher, cannot use!" << endl;
-            return true;
-        }
-        else
-        {
-            return false; // means we have a lower cost solution
-        }
-    } 
-
 };
