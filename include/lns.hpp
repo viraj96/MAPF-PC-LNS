@@ -614,6 +614,7 @@ class LNS
     bool run();
     void prepareNextIteration();
     void OnlineprepareNextIteration(set<int> new_conflict_tasks, set<int> conflicted_tasks);
+    void IslandprepareNextIteration();
     void printPaths() const;
     bool validateSolution(set<int>* conflicted_tasks = nullptr);
     bool OnlinevalidateSolution(set<int>* conflicted_tasks = nullptr);

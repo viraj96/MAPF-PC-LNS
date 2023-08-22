@@ -130,7 +130,7 @@ LNS::run()
             previous_solution = solution;
             // need to add a flag here
             if (combo_flag == "original" || combo_flag == "online" || combo_flag == "single"){
-                prepareNextIteration();
+                IslandprepareNextIteration();
                 PLOGW << "Printing paths after prep next step";
                 printPaths();            
             }
@@ -155,25 +155,26 @@ LNS::run()
                 IDEA 2: This introduces the concept of grouping conflicted tasks together
                 */
                 //TODO: optimization tip MAKE ISLANDS during validation solution check
-   
-                while (!solution.neighbor.conflicted_tasks.empty()) {
-                    //first step is to break up the set into mini islands (task dependencies to break set)
-                    // TODO: merge both island creation and order generation
-                    vector<set<int>> islands = solution.getConflictIslands(&instance);
-                    // A. Find topological order for each island
-                    // save the topological order
-                    vector<pair<vector<int>, vector<TemporalOrder>>> islands_in_order;
-                    for(set<int> s : islands)
+                //first step is to break up the set into mini islands (task dependencies to break set)
+                // merge both island creation and order generation
+                vector<set<int>> islands = solution.getConflictIslands(&instance);
+                // A. Find topological order for each island
+                // save the topological order
+                vector<pair<vector<int>, vector<TemporalOrder>>> islands_in_order;
+                for(set<int> s : islands)
+                {
+                    pair<vector<int>, vector<TemporalOrder>> islandPackage = solution.getIslandOrder(s, &instance);
+                    islands_in_order.push_back(islandPackage);
+                    PLOGW <<"Temporal Order in the island";
+                    for (int elem: islandPackage.first)
                     {
-                        pair<vector<int>, vector<TemporalOrder>> islandPackage = solution.getIslandOrder(s, &instance);
-                        islands_in_order.push_back(islandPackage);
-                        PLOGW <<"Temporal Order in the island";
-                        for (int elem: islandPackage.first)
-                        {
-                            PLOGW << elem;
-                        }
+                        PLOGW << elem;
                     }
-                    PLOGW << "Number of islands found = " << islands.size();
+                }
+                PLOGW << "Number of islands found = " << islands.size();
+
+                while (!solution.neighbor.conflicted_tasks.empty())
+                {                    
                     // B. Compute metatask regret for each island
                     vector<int> compare_regret_sums; // store each island's regret sum
                     vector<vector<pair<int,Regret>>> island_regrets;
@@ -333,7 +334,7 @@ LNS::run()
                                 {
                                     if(n.first == old)
                                     {
-                                        old_sum += n.second; // FIXME: to only include this island's distances;
+                                        old_sum += n.second; // to only include this island's distances;
                                     }
                                 }
                             }
@@ -342,8 +343,8 @@ LNS::run()
                             {
                                 new_sum += n.second;
                             }
-                            PLOGD <<"New distnace sum = " << new_sum;
-                            PLOGD <<"Old distance sum = " << old_sum;
+                            PLOGD <<"Island new distance sum = " << new_sum;
+                            PLOGD <<"Island old distance sum = " << old_sum;
                             if(new_sum > old_sum)
                             {
                                 // this island regret configuration did not work
@@ -378,164 +379,37 @@ LNS::run()
 
                     }
                     // C. Compute the best island to commit (use the same thing below)
-                    // D. Commit the best island and get back new conflicts (will the be the same as before)
-                    while (!compare_regret_sums.empty())
-                    {
 
-                        auto max_it = std::max_element(compare_regret_sums.begin(), compare_regret_sums.end());
-                        int max_index = distance(compare_regret_sums.begin(), max_it);
-                        PLOGI << "Max regret value = " << compare_regret_sums[max_index] << " For Island = " << max_index;
-                        // set<int> island = islands[max_index];
-                        pair<vector<int>, vector<TemporalOrder>> packet = islands_in_order[max_index];
-                        vector<int> island = packet.first;
-                        vector<pair<int,Regret>> saved_regrets = island_regrets[max_index];
-                        for (int task: island)
+                    // D. After committing the best island restart the island process again
+                    auto max_it = std::max_element(compare_regret_sums.begin(), compare_regret_sums.end());
+                    int max_index = distance(compare_regret_sums.begin(), max_it);
+                    PLOGI << "Max regret value = " << compare_regret_sums[max_index] << " For Island = " << max_index;
+                    // set<int> island = islands[max_index];
+                    pair<vector<int>, vector<TemporalOrder>> packet = islands_in_order[max_index];
+                    vector<int> island = packet.first;
+                    vector<pair<int,Regret>> saved_regrets = island_regrets[max_index];
+                    for (int task: island)
+                    {
+                        for(pair<int,Regret> p: saved_regrets)
                         {
-                            for(pair<int,Regret> p: saved_regrets)
+                            if (p.first == task)
                             {
-                                if (p.first == task)
-                                {
-                                    // Use the best regret task and insert it in its correct location
-                                    commitBestRegretTask(p.second);
-                                    PLOGI << "Removing from conflict set task = " << task;
-                                    
-                                    solution.neighbor.conflicted_tasks.erase(task);
-                                    conflicted_tasks.erase(task);
-                                }
+                                // Use the best regret task and insert it in its correct location
+                                commitBestRegretTask(p.second);
+                                PLOGI << "Removing from conflict set task = " << task;
+                                
+                                solution.neighbor.conflicted_tasks.erase(task);
+                                conflicted_tasks.erase(task);
                             }
                         }
-                        PLOGW << "Size of solution neighbor CT = " << solution.neighbor.conflicted_tasks.size();
-                        PLOGW << "Size of local CT = " << conflicted_tasks.size();
-                        compare_regret_sums.erase(compare_regret_sums.begin(), compare_regret_sums.begin()+max_index);
-                        //fifth step is to validate the committed island solution
-                        for (int i = 0; i < instance.getAgentNum(); i++)
-                            solution.agents[i].path = Path();
-
-                        vector<int> agents_to_compute(instance.getAgentNum());
-                        std::iota(agents_to_compute.begin(), agents_to_compute.end(), 0);
-                        solution.joinPaths(agents_to_compute);
-
-                        printPaths();
-                        //sixth step is to get new conflicts and push them to set (remove current conflict tasks in island, add any new)
-                        set<int> new_conflict_tasks;
-                        valid = OnlinevalidateSolution(&new_conflict_tasks); // assertion error happens for infinite loop islands at 2nd iteration
-                        if (valid) {
-                            PLOGV << "No issues with island commit!\n";
-                        } else {
-                            PLOGE << "New conflicts found with island commit!\n";
-                            solution.neighbor.conflicted_tasks = new_conflict_tasks; // have to do this to allow prep next iteration to work
-                            previous_solution = solution;// I need to do this to keep an updated prev solution with commits made
-                            //seventh step is to prepare the solution using prep next iteration (amend the paths using prep next iteration)
-                            OnlineprepareNextIteration(new_conflict_tasks, conflicted_tasks);
-                            // just to ensure for cases when conflict agents are at the end of their agent's sequence
-                            std::merge(new_conflict_tasks.begin(), new_conflict_tasks.end(),
-                                conflicted_tasks.begin(), conflicted_tasks.end(),
-                                    std::inserter(solution.neighbor.conflicted_tasks, solution.neighbor.conflicted_tasks.begin()));
-                            // now that a new solution neighbor conflict has been merged, we can update the conflict task set for next iter
-                            conflicted_tasks = solution.neighbor.conflicted_tasks; // I need to do this for ground truth in next iter
-                            
-                            break; // need to break to start again
-                        }
-                        //TODO eight step is to go to step 1 (if new conflicts, get rid of island heap, get rid of islands, restart process)
-                        
                     }
+                    PLOGW << "Size of solution neighbor CT = " << solution.neighbor.conflicted_tasks.size();
+                    PLOGW << "Size of local CT = " << conflicted_tasks.size();
+                    // Add a way to delete the islands that can then be used in the while loop condition check                
+                    islands_in_order.erase(islands_in_order.begin() + max_index);
                     
-                }
+                } // online while loop scope end  -> checking for empty conflict set
             }
-            // else if (combo_flag == "single")
-            // {
-            //     /*
-            //     IDEA 3: This is also making groups of conflicts, but committing one task from group and resetting
-            //     */
-               
-            //     bool break_flag = false;
-            //     while (!solution.neighbor.conflicted_tasks.empty()) {
-            //         //first step is to break up the set into mini islands (task dependencies to break set)
-            //         vector<set<int>> islands = solution.getConflictIslands(&instance);
-            //         PLOGW << "Number of islands found = " << islands.size();
-            //         //second step is to get regret for each conflicted task (new struct make task , regret pair)
-            //         vector<int> compare_regret_sums; // store each island's regret sum
-            //         vector<vector<pair<int,Regret>>> island_regrets;
-            //         for (set<int> island: islands) // for loop to get each island's sum
-            //         {
-            //             int sums = 0;
-            //             vector<pair<int, Regret>> save_regrets;
-            //             for (int task: island)
-            //             {
-            //                 OnlinecomputeRegret(task); // should take one task at a time from the set
-            //                 Regret best_regret = solution.neighbor.regret_max_heap.top();
-            //                 sums += best_regret.value;
-            //                 save_regrets.push_back(make_pair(task, best_regret));
-            //             }
-            //             compare_regret_sums.push_back(sums);
-            //             island_regrets.push_back(save_regrets);
-            //         }
-            //         //third step is to choose the island with the max regret (sum individual regret values within island)
-            //         while (!compare_regret_sums.empty())
-            //         {
-            //             //TODO fourth step is to commit the island in order (new struct / heap? with above)
-            //                 // skip // CAN PERHAPS USE TOPOLOGICAL SORT HERE
-            //             auto max_it = std::max_element(compare_regret_sums.begin(), compare_regret_sums.end());
-            //             int max_index = distance(compare_regret_sums.begin(), max_it);
-            //             PLOGI << "Max regret value = " << compare_regret_sums[max_index] << " For Island = " << max_index;
-            //             set<int> island = islands[max_index];
-            //             vector<pair<int,Regret>> saved_regrets = island_regrets[max_index];
-            //             for (int task: island)
-            //             {
-            //                 for(pair<int,Regret> p: saved_regrets)
-            //                 {
-            //                     if (p.first == task)
-            //                     {
-            //                         // Use the best regret task and insert it in its correct location
-            //                         commitBestRegretTask(p.second);
-            //                         PLOGI << "Removing from conflict set task = " << task;
-            //                         solution.neighbor.conflicted_tasks.erase(task);
-            //                         conflicted_tasks.erase(task);
-            //                     }
-            //                     PLOGW << "Size of solution neighbor CT = " << solution.neighbor.conflicted_tasks.size();
-            //                     PLOGW << "Size of local CT = " << conflicted_tasks.size();
-            //                     compare_regret_sums.erase(compare_regret_sums.begin(), compare_regret_sums.begin()+max_index);
-            //                     //fifth step is to validate the committed island solution
-            //                     for (int i = 0; i < instance.getAgentNum(); i++)
-            //                         solution.agents[i].path = Path();
-
-            //                     vector<int> agents_to_compute(instance.getAgentNum());
-            //                     std::iota(agents_to_compute.begin(), agents_to_compute.end(), 0);
-            //                     solution.joinPaths(agents_to_compute);
-            //                     printPaths();
-            //                     //sixth step is to get new conflicts and push them to set (remove current conflict tasks in island, add any new)
-            //                     set<int> new_conflict_tasks;
-            //                     valid = OnlinevalidateSolution(&new_conflict_tasks); // assertion error happens for infinite loop islands at 2nd iteration
-            //                     if (valid) {
-            //                         PLOGV << "No issues with island commit!\n";
-            //                     } else {
-            //                         PLOGE << "New conflicts found with island commit!\n";
-            //                         solution.neighbor.conflicted_tasks = new_conflict_tasks; // have to do this to allow prep next iteration to work
-            //                         previous_solution = solution;// I need to do this to keep an updated prev solution with commits made
-            //                         //seventh step is to prepare the solution using prep next iteration (amend the paths using prep next iteration)
-            //                         OnlineprepareNextIteration(new_conflict_tasks, conflicted_tasks);
-            //                         // just to ensure for cases when conflict agents are at the end of their agent's sequence
-            //                         std::merge(new_conflict_tasks.begin(), new_conflict_tasks.end(),
-            //                             conflicted_tasks.begin(), conflicted_tasks.end(),
-            //                                 std::inserter(solution.neighbor.conflicted_tasks, solution.neighbor.conflicted_tasks.begin()));
-            //                         // now that a new solution neighbor conflict has been merged, we can update the conflict task set for next iter
-            //                         conflicted_tasks = solution.neighbor.conflicted_tasks; // I need to do this for ground truth in next iter
-            //                         break_flag = true;
-            //                         break; // need to break to start again
-            //                     }
-            //                     //TODO eight step is to go to step 1 (if new conflicts, get rid of island heap, get rid of islands, restart process)
-            //                 }
-            //                 if (break_flag)
-            //                     break;
-            //             }
-            //             if (break_flag)
-            //                 break;
-                        
-            //         }
-            //         // if (break_flag) // don't need this
-            //         //     break;
-            //     }                
-            // }
             // join the individual paths that were found for each agent
             for (int i = 0; i < instance.getAgentNum(); i++)
                 solution.agents[i].path = Path();
@@ -545,15 +419,6 @@ LNS::run()
             solution.joinPaths(agents_to_compute);
 
             printPaths();
-            // for(int agent = 0; agent < instance.getAgentNum(); agent++)
-            // {
-            //     PLOGI << "Agent = " << agent;
-            //     vector<int> tasks = solution.getAgentGlobalTasks(agent);
-            //     PLOGI << "task back = " << tasks.back();
-            //     PLOGI << "task path end time = " << solution.agents[agent].task_paths[tasks.back()].end_time();
-            //     PLOGI << "path end time = " << solution.agents[agent].path.end_time();
-            //     // assert(solution.agents[agent].task_paths[tasks.back()].end_time() == solution.agents[agent].path.end_time());
-            // }
             // compute the updated sum of costs
             solution.sum_of_costs = 0;
             for (int agent = 0; agent < instance.getAgentNum(); agent++) {
@@ -1683,6 +1548,12 @@ LNS::OnlinecomputeRegretForTask(int task, int earlyT, CopySolution* cp_soln, uno
             successors.push_back(precedence_constraint.second);
         ancestors[precedence_constraint.second].push_back(precedence_constraint.first);
     }
+    unordered_map<int,vector<int>> task_depen = instance.getTaskDependencies();
+    vector<int> ancestor_list = task_depen[task];
+    for(int anc: ancestor_list)
+    {
+        ancestors[task].push_back(anc); // FIXME: will this break?
+    }
     // TODO: cant touch below we may need it to support strict parents? for others we have earlyT anyway?
     stack<int> q({ task });
     unordered_set<int> previous_tasks;
@@ -1823,18 +1694,20 @@ LNS::OnlinecomputeRegretForTaskWithAgent(
     vector<int> agent_tasks = cp_soln->task_assign_refs[agent];
     for (int j = cp_soln->task_assign_refs[agent].size() - 1; j >= 0; j--) {
         if (cp_soln->agent_refs[agent].path.timestamps[j] <= earliest_timestep) {
+            // PLOGI << "first valid time "  <<cp_soln->agent_refs[agent].path.timestamps[j];
             first_valid_position = j + 1;
             break;
         }
     }
     // compute the last position along the agent's task assignment where we can insert this task
-    for (int j = 1; j < solution.getAssignedTaskSize(agent); j++) {
+    for (int j = 1; j < cp_soln->task_assign_refs[agent].size(); j++) {
         if (cp_soln->agent_refs[agent].path.timestamps[j] >= latest_timestep) {
+            // PLOGI << "last valid time "  <<cp_soln->agent_refs[agent].path.timestamps[j];
             last_valid_position = j - 1;
             break;
         }
     }    
-    // PLOGW << "valid position start " << first_valid_position << " valid position end " << last_valid_position << " agent " << agent;
+
     assert(first_valid_position >= 0);
     // assert(last_valid_position <= solution.getAssignedTaskSize(agent) + 1);
     assert(last_valid_position <= cp_soln->task_assign_refs[agent].size() + 1);
@@ -1890,11 +1763,11 @@ LNS::OnlinecomputeRegretForTaskWithAgent(
             if (cp_soln->agent_refs[agent].path.timestamps[j-1] < earliest_timestep) // FIXME: this is not checking what you want it to check temporally
                 continue;
         }
-        if (j <= cp_soln->task_assign_refs[agent].size()-1) // asserting that latest time bounds are met
-        {
-            if (cp_soln->agent_refs[agent].path.timestamps[j+1] > latest_timestep) // FIXME: this is not checking what you want it to check temporally
-                continue;            
-        }
+        // if (j <= cp_soln->task_assign_refs[agent].size()-1) // asserting that latest time bounds are met
+        // {
+        //     if (cp_soln->agent_refs[agent].path.timestamps[j+1] > latest_timestep) // FIXME: this is not checking what you want it to check temporally
+        //         continue;            
+        // }
 
         // f agent and task position for this task in cancelled positions, "continue"
         bool cancel_flag = false;
@@ -1907,6 +1780,7 @@ LNS::OnlinecomputeRegretForTaskWithAgent(
                     if(cancel.second == j)
                     {
                         cancel_flag = true;
+                        PLOGW << "Part of cancel group";
                         break;
                     }
                 }
@@ -1919,7 +1793,7 @@ LNS::OnlinecomputeRegretForTaskWithAgent(
 
         // save the distance in the vector for this task and position or whatever is there
         distances->push_back(make_pair(make_pair(agent, j), distance));
-
+        // PLOGW << "valid position start " << first_valid_position << " valid position end " << last_valid_position << " agent " << agent;
         // vector<Path> task_paths = solution.paths;
         // vector<vector<int>> task_assignments = solution.task_assignments;
         // vector<pair<int, int>> prec_constraints = *precedence_constraints;
@@ -2109,6 +1983,129 @@ LNS::OnlineprepareNextIteration(set<int> new_conflict_tasks, set<int> conflicted
         }
     }
 
+    // vector<int> agents_to_compute;
+    set<int> agents_to_compute; // trying for set to resolve the issue I am seeing
+    for (pair<int, int> task_agent : affected_agents)
+        agents_to_compute.insert(task_agent.second);
+        // agents_to_compute.push_back(task_agent.second);
+    solution.OnlinejoinPaths(agents_to_compute); // change the join path algo a bit
+}
+
+// FIXME: put the new prepnext iteration here
+void
+LNS::IslandprepareNextIteration()
+{
+    // remove the conflicted tasks from the agents paths and recompile their paths
+    PLOGI << "Preparing the solution object for next iteration\n";
+
+    for (int agent = 0; agent < instance.getAgentNum(); agent++) {
+        solution.agents[agent].path_planner = new MultiLabelSpaceTimeAStar(instance, agent);
+        vector<int> task_locations = instance.getTaskLocations(solution.getAgentGlobalTasks(agent));
+        solution.agents[agent].path_planner->setGoalLocations(task_locations);
+        solution.agents[agent].path_planner->compute_heuristics();
+    }
+
+    vector<int> tasks_to_fix; // if t_id is deleted then t_id + 1 task needs to be fixed
+    unordered_map<int, int> affected_agents, global_to_local_task_id;
+    for (int ct : solution.neighbor.conflicted_tasks) {
+        PLOGI << "Conflict task prep = " << ct; // todo: DLETE WANTED TO CHECK FOR DEBUG
+        int agent = solution.getAgentWithTask(ct),
+            ct_position = solution.getLocalTaskIndex(agent, ct),
+            path_size = (int)solution.paths[ct].size(); // path_size is used for heuristic estimate
+        PLOGD << "Conflicting task: " << ct << ", Agent: " << agent << endl;
+
+        // // if the conflicted task was not the last local task of this agent then t_id + 1 exists
+        // if (ct_position != solution.getAssignedTaskSize(agent) - 1) {
+        //     int next_task = solution.getAgentGlobalTasks(agent, ct_position + 1);
+        //     tasks_to_fix.push_back(next_task);
+        //     path_size += solution.paths[next_task].size();
+        //     PLOGD << "Next task: " << next_task << endl;
+        // }
+        // if the conflicted task was not the last local task of this agent then t_id + 1 exists
+        if (ct_position != solution.getAssignedTaskSize(agent) - 1) {
+            int next_task = solution.getAgentGlobalTasks(agent, ct_position + 1);
+            if (solution.neighbor.conflicted_tasks.find(next_task) == solution.neighbor.conflicted_tasks.end()) // adding condition to check if next task is in ct then ignore
+            {
+                tasks_to_fix.push_back(next_task);
+                path_size += solution.paths[next_task].size();
+                PLOGD << "Next task: " << next_task << endl;                
+            }
+        }
+        solution.paths[ct] = Path();
+        affected_agents.insert(make_pair(ct, agent));
+        global_to_local_task_id.insert(make_pair(ct, ct_position));
+        solution.neighbor.conflicted_tasks_path_size.insert(make_pair(ct, path_size));
+
+        // marking past information about this conflicting task
+        solution.clearIntraAgentPrecedenceConstraint(ct);
+        // needs to happen after clearing precedence constraints
+        solution.task_assignments[agent][ct_position] = -1;
+        solution.agents[agent].task_paths[ct_position] = Path();
+    }
+
+    vector<int> planning_order;
+    assert(topological_sort(&instance, &solution.precedence_constraints, planning_order));
+
+    // marking past information about conflicting tasks
+    for (pair<int, int> task_agent : affected_agents) {
+        int agent = task_agent.second;
+
+        // for an affected agent there can be multiple conflicting tasks so need to do it this way
+        solution.agents[agent].path = Path();
+        solution.task_assignments[agent].erase(
+          std::remove_if(solution.task_assignments[agent].begin(),
+                         solution.task_assignments[agent].end(),
+                         [](int task) { return task == -1; }),
+          solution.task_assignments[agent].end());
+        solution.agents[agent].task_paths.erase(
+          std::remove_if(solution.agents[agent].task_paths.begin(),
+                         solution.agents[agent].task_paths.end(),
+                         [](Path p) { return isSamePath(p, Path()); }),
+          solution.agents[agent].task_paths.end());
+
+        vector<int> task_locations = instance.getTaskLocations(solution.getAgentGlobalTasks(agent));
+        solution.agents[agent].path_planner->setGoalLocations(task_locations);
+        solution.agents[agent].path_planner->compute_heuristics();
+    }
+
+    // find the paths for the tasks whose previous tasks were removed
+    for (int task : planning_order) {
+        if (std::find(tasks_to_fix.begin(), tasks_to_fix.end(), task) != tasks_to_fix.end()) {
+
+            PLOGD << "Going to find path for next task: " << task << endl;
+
+            int start_time = 0, agent = solution.getAgentWithTask(task);
+            int task_position = solution.getLocalTaskIndex(agent, task);
+
+
+            if (task_position != 0){ // THIS IS CAUSING THE ISSUE OF COMBINATION WHEN TASK REMOVED IS IN FRONT?
+                start_time = solution.agents[agent].task_paths[task_position - 1].end_time();}
+            else{
+                solution.paths.at(task).begin_time = 0; // does this help? // FIXME: Enabling solution path class to be updated as well
+            }
+            assert(task_position <= solution.getAssignedTaskSize(agent) - 1);
+
+            ConstraintTable constraint_table(instance.num_of_cols, instance.map_size);
+            build_constraint_table(constraint_table, task);
+            solution.paths[task] = solution.agents[agent].path_planner->findPathSegment(
+              constraint_table, start_time, task_position, 0);
+            solution.agents[agent].task_paths[task_position] = solution.paths[task];
+
+            // Once the path was found fix the begin times for subsequent tasks of the agent
+            for (int k = task_position + 1; k < solution.getAssignedTaskSize(agent); k++){
+                solution.agents[agent].task_paths[k].begin_time =
+                  solution.agents[agent].task_paths[k - 1].end_time();
+                int task = solution.getAgentGlobalTasks(agent, k); // FIXME: getting information about task at position k
+                int pred = solution.getAgentGlobalTasks(agent, k-1); // FIXME: getting infomration about task at position k-1
+                solution.paths.at(task).begin_time = solution.paths.at(pred).end_time(); // did this help? FIXME: enforcing the times to be same
+            }
+        }
+    }
+
+    // vector<int> agents_to_compute;
+    // for (pair<int, int> task_agent : affected_agents)
+    //     agents_to_compute.push_back(task_agent.second);
+    // solution.joinPaths(agents_to_compute);
     // vector<int> agents_to_compute;
     set<int> agents_to_compute; // trying for set to resolve the issue I am seeing
     for (pair<int, int> task_agent : affected_agents)
