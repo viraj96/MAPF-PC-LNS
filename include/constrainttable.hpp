@@ -7,34 +7,32 @@ class ConstraintTable
 {
 
   protected:
-    unordered_map<size_t, size_t> landmarks;
-    unordered_map<size_t, list<pair<int, int>>> constraint_table;
+    unordered_map<size_t, size_t> landmarks_; // (key, value) - (time, location)
+    unordered_map<size_t, list<pair<int, int>>> constraintTable_; // (key, value) - (location, occupied time intervals)
 
     void insertLandmark(size_t location, int timestep);
-    inline size_t getEdgeIndex(size_t from, size_t to) const { return (1 + from) * map_size + to; }
+    inline size_t getEdgeIndex(size_t from, size_t to) const { return (1 + from) * mapSize + to; }
 
   public:
-    size_t num_col, map_size;
-    int size = 0, length_min = 0, length_max = MAX_TIMESTEP, goal_location = -1,
-        latest_timestep = 0;
-
-    vector<int> leq_goal_time, g_goal_time; // what do these do?
+    size_t numCol{}, mapSize{};
+    int size = 0, lengthMin = 0, lengthMax = MAX_TIMESTEP, goalLocation = -1;
+    int latestTimestep = 0; // Latest recorded timestep in the occupied interval table. Cannot be the MAX_TIMESTEP
 
     ConstraintTable() = default;
-    ConstraintTable(size_t num_col, size_t map_size)
-      : num_col(num_col)
-      , map_size(map_size)
+    ConstraintTable(size_t numCol, size_t mapSize)
+      : numCol(numCol)
+      , mapSize(mapSize)
     {}
     ConstraintTable(const ConstraintTable& old) { copy(old); }
 
     int getHoldingTime();
-    bool constrained(size_t location, int time) const;
-    bool constrained(size_t current_location, size_t next_location, int next_timestep) const;
+    bool constrained(size_t location, int timestep) const;
+    bool constrained(size_t currentLocation, size_t nextLocation, int nextTimestep) const;
 
     void copy(const ConstraintTable& old);
-    void insert2CT(size_t location, int t_min, int t_max);
-    void insert2CT(size_t from, size_t to, int t_min, int t_max);
+    void insert2CT(size_t location, int tMin, int tMax);
+    void insert2CT(size_t from, size_t to, int tMin, int tMax);
 
-    void addPath(const Path& path, bool wait_at_goal);
-    unordered_map<size_t, size_t> getLandmarks() const { return landmarks; }
+    void addPath(const Path& path, bool waitAtGoal);
+    unordered_map<size_t, size_t> getLandmarks() const { return landmarks_; }
 };

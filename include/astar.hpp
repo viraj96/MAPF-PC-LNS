@@ -5,160 +5,160 @@
 #include "instance.hpp"
 #include <plog/Log.h>
 
+#include <utility>
+
 class LLNode
 {
   public:
-    vector<int> timestamps;
-    vector<int> secondary_keys;
+    vector<int> timeStamps;
+    vector<int> secondaryKeys;
 
     LLNode* parent = nullptr;
-    int location, g_val, h_val = 0, timestep = 0, num_of_conflicts = 0;
-    bool in_openlist = false, wait_at_goal = false;
-    unsigned int stage = 0, distance_to_next = 0;
+    int location{}, gVal{}, hVal = 0, timestep = 0, numOfConflicts = 0;
+    bool inOpenlist = false, waitAtGoal = false;
+    unsigned int stage = 0, distanceToNext = 0;
 
-    struct open_compare_node
+    struct OpenCompareNode
     {
         bool operator()(const LLNode* lhs, const LLNode* rhs) const
         {
-            if (lhs->g_val + lhs->h_val == rhs->g_val + rhs->h_val) {
-                if (lhs->h_val == rhs->h_val)
+            if (lhs->gVal + lhs->hVal == rhs->gVal + rhs->hVal) {
+                if (lhs->hVal == rhs->hVal) {
                     return rand() % 2 == 0;
-                return lhs->h_val >= rhs->h_val;
+                }
+                return lhs->hVal >= rhs->hVal;
             }
-            return lhs->g_val + lhs->h_val >= rhs->g_val + rhs->h_val;
+            return lhs->gVal + lhs->hVal >= rhs->gVal + rhs->hVal;
         }
     };
 
-    struct compare_timestamps
+    struct CompareTimestamps
     {
         int operator()(const LLNode* lhs, const LLNode* rhs) const
         {
-            for (int i = 0; i < min((int)lhs->timestamps.size(), (int)rhs->timestamps.size()); i++)
-                if (lhs->timestamps[i] != rhs->timestamps[i])
-                    return lhs->timestamps[i] > rhs->timestamps[i] ? 1 : -1;
-
-            int lhs_last_val, rhs_last_val;
-            if (lhs->timestamps.size() > rhs->timestamps.size()) {
-                lhs_last_val = lhs->timestamps[rhs->timestamps.size()];
-                rhs_last_val = rhs->g_val + rhs->distance_to_next;
-            } else if (lhs->timestamps.size() < rhs->timestamps.size()) {
-                lhs_last_val = lhs->g_val + lhs->distance_to_next;
-                rhs_last_val = rhs->timestamps[lhs->timestamps.size()];
-            } else {
-                lhs_last_val = lhs->g_val + lhs->distance_to_next;
-                rhs_last_val = rhs->g_val + rhs->distance_to_next;
+            for (int i = 0; i < min((int)lhs->timeStamps.size(), (int)rhs->timeStamps.size()); i++) {
+                if (lhs->timeStamps[i] != rhs->timeStamps[i]) {
+                    return lhs->timeStamps[i] > rhs->timeStamps[i] ? 1 : -1;
+                }
             }
 
-            if (lhs_last_val != rhs_last_val)
-                return lhs_last_val > rhs_last_val ? 1 : -1;
+            int lhsLastVal, rhsLastVal;
+            if (lhs->timeStamps.size() > rhs->timeStamps.size()) {
+                lhsLastVal = lhs->timeStamps[rhs->timeStamps.size()];
+                rhsLastVal = rhs->gVal + rhs->distanceToNext;
+            } else if (lhs->timeStamps.size() < rhs->timeStamps.size()) {
+                lhsLastVal = lhs->gVal + lhs->distanceToNext;
+                rhsLastVal = rhs->timeStamps[lhs->timeStamps.size()];
+            } else {
+                lhsLastVal = lhs->gVal + lhs->distanceToNext;
+                rhsLastVal = rhs->gVal + rhs->distanceToNext;
+            }
+
+            if (lhsLastVal != rhsLastVal) {
+                return lhsLastVal > rhsLastVal ? 1 : -1;
+            }
 
             return 0;
         }
     };
 
-    struct focal_compare_node
+    struct FocalCompareNode
     {
         bool operator()(const LLNode* lhs, const LLNode* rhs) const
         {
-            for (int i = 0;
-                 i < min((int)lhs->secondary_keys.size(), (int)rhs->secondary_keys.size());
-                 i++)
-                if (lhs->secondary_keys[i] != rhs->secondary_keys[i])
-                    return lhs->secondary_keys[i] > rhs->secondary_keys[i];
-            int timestamps_comparison = compare_timestamps()(lhs, rhs);
-            if (timestamps_comparison != 0)
-                return timestamps_comparison == 1 ? true : false;
-            if (lhs->num_of_conflicts == rhs->num_of_conflicts) {
-                if (lhs->g_val + lhs->h_val == rhs->g_val + rhs->h_val) {
-                    if (lhs->h_val == rhs->h_val)
-                        return rand() % 2 == 0;
-                    return lhs->h_val >= rhs->h_val;
+            for (int i = 0; i < min((int)lhs->secondaryKeys.size(), (int)rhs->secondaryKeys.size()); i++) {
+                if (lhs->secondaryKeys[i] != rhs->secondaryKeys[i]) {
+                    return lhs->secondaryKeys[i] > rhs->secondaryKeys[i];
                 }
-                return lhs->g_val + lhs->h_val >= rhs->g_val + rhs->h_val;
             }
-            return lhs->num_of_conflicts >= rhs->num_of_conflicts;
+            int timeStampsComparison = CompareTimestamps()(lhs, rhs);
+            if (timeStampsComparison != 0) {
+                return timeStampsComparison == 1;
+            }
+            if (lhs->numOfConflicts == rhs->numOfConflicts) {
+                if (lhs->gVal + lhs->hVal == rhs->gVal + rhs->hVal) {
+                    if (lhs->hVal == rhs->hVal) {
+                        return rand() % 2 == 0;
+                    }
+                    return lhs->hVal >= rhs->hVal;
+                }
+                return lhs->gVal + lhs->hVal >= rhs->gVal + rhs->hVal;
+            }
+            return lhs->numOfConflicts >= rhs->numOfConflicts;
         }
     };
 
-    LLNode() {}
+    LLNode() = default;
     LLNode(LLNode* parent,
            int location,
-           int g_val,
-           int h_val,
+           int gVal,
+           int hVal,
            int timestep,
-           int num_of_conflicts,
+           int numOfConflicts,
            unsigned int stage)
       : parent(parent)
       , location(location)
-      , g_val(g_val)
-      , h_val(h_val)
+      , gVal(gVal)
+      , hVal(hVal)
       , timestep(timestep)
-      , num_of_conflicts(num_of_conflicts)
-      , in_openlist(false)
-      , wait_at_goal(false)
+      , numOfConflicts(numOfConflicts)
       , stage(stage)
     {}
     LLNode(const LLNode& old) { copy(old); }
 
-    inline double getFVal() const { return g_val + h_val; }
+    inline double getFVal() const { return gVal + hVal; }
 
     void copy(const LLNode& old)
     {
         location = old.location;
-        g_val = old.g_val;
-        h_val = old.h_val;
+        gVal = old.gVal;
+        hVal = old.hVal;
         parent = old.parent;
         timestep = old.timestep;
-        num_of_conflicts = old.num_of_conflicts;
-        wait_at_goal = old.wait_at_goal;
+        numOfConflicts = old.numOfConflicts;
+        waitAtGoal = old.waitAtGoal;
     }
 };
 
 class SingleAgentSolver
 {
   public:
-    uint64_t num_expanded = 0;
-    uint64_t num_generated = 0;
+    uint64_t numExpanded = 0, numGenerated = 0;
 
-    bool use_timestamps = true;
+    bool useTimeStamps = true;
 
     const Instance& instance;
 
-    int start_location;
-    vector<int> goal_locations;
-    vector<int> heuristic_landmarks;
+    int startLocation;
+    vector<int> goalLocations;
+    vector<int> heuristicLandmarks;
 
     vector<vector<int>> heuristic;
 
-    void compute_heuristics();
-    int get_heuristic(int stage, int location) const
+    void computeHeuristics();
+    int getHeuristic(int stage, int location) const
     {
-        return heuristic[stage][location] + heuristic_landmarks[stage];
+        return heuristic[stage][location] + heuristicLandmarks[stage];
     }
-    int compute_heuristic(int from, int to) const
+    int computeHeuristic(int from, int to) const
     {
         return instance.getManhattanDistance(from, to);
     }
-    inline void setGoalLocations(vector<int> goals) { goal_locations = goals; }
+    inline void setGoalLocations(vector<int> goals) { goalLocations = std::move(goals); }
 
     virtual string getName() const = 0;
-    virtual Path findPathSegment(ConstraintTable& constraint_table,
-                                 int start_time,
+    virtual Path findPathSegment(ConstraintTable& constraintTable,
+                                 int startTime,
                                  int stage,
-                                 int lower_bound) = 0;
-    /* virtual int getTravelTime(int start, */
-    /*                           int end, */
-    /*                           const ConstraintTable& constraint_table, */
-    /*                           int upper_bound) = 0; */
-
+                                 int lowerBound) = 0;
     list<int> getNeighbors(int curr) const { return instance.getNeighbors(curr); }
 
     SingleAgentSolver(const Instance& instance, int agent)
       : instance(instance)
-      , start_location(instance.start_locations[agent])
-      , goal_locations(instance.task_locations)
+      , startLocation(instance.startLocations_[agent])
+      , goalLocations(instance.taskLocations_)
     {
-        compute_heuristics();
+        computeHeuristics();
     }
     virtual ~SingleAgentSolver() = default;
 };

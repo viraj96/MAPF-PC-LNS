@@ -1,26 +1,24 @@
 #include "instance.hpp"
 #include <boost/tokenizer.hpp>
 
-Instance::Instance(const string& map_fname,
-                   const string& agent_task_fname,
-                   int num_of_agents,
-                   int num_of_tasks)
-  : map_fname(map_fname)
-  , agent_task_fname(agent_task_fname)
-  , num_of_agents(num_of_agents)
-  , num_of_tasks(num_of_tasks)
+Instance::Instance(const string& mapFname,
+                   const string& agentTaskFname,
+                   int numOfAgents,
+                   int numOfTasks)
+  : mapFname_(mapFname)
+  , agentTaskFname_(agentTaskFname)
+  , numOfAgents_(numOfAgents)
+  , numOfTasks_(numOfTasks)
 {
     bool succ = loadMap();
     if (!succ) {
-
-        PLOGE << "Map file " << map_fname << " not found.\n";
+        PLOGE << "Map file " << mapFname << " not found.\n";
         exit(-1);
     }
 
     succ = loadAgentsAndTasks();
     if (!succ) {
-
-        PLOGE << "Agent and task file " << agent_task_fname << " not found.\n";
+        PLOGE << "Agent and task file " << agentTaskFname << " not found.\n";
         exit(-1);
     }
 }
@@ -31,12 +29,13 @@ Instance::loadMap()
     using namespace std;
     using namespace boost;
 
-    ifstream file(map_fname.c_str());
-    if (!file.is_open())
+    ifstream file(mapFname_.c_str());
+    if (!file.is_open()) {
         return false;
+    }
 
-    // using custom mapf benchmark for now. Once validated you want to move to the original mapf
-    // bechmarks
+    // Using custom mapf benchmark for now. 
+    // Once validated you want to move to the original mapf bechmarks
     string line;
     char_separator<char> sep(",");
     tokenizer<char_separator<char>>::iterator begin;
@@ -44,16 +43,17 @@ Instance::loadMap()
     getline(file, line);
     tokenizer<char_separator<char>> tokenizer(line, sep);
     begin = tokenizer.begin();
-    num_of_rows = atoi((*begin).c_str()); // read the number of rows
+    numOfRows = atoi((*begin).c_str()); // Read the number of rows
     begin++;
-    num_of_cols = atoi((*begin).c_str()); // read the number of columns
+    numOfCols = atoi((*begin).c_str()); // Read the number of columns
 
-    map_size = num_of_cols * num_of_rows;
-    map.resize(map_size, false);
-    for (int i = 0; i < num_of_rows; i++) {
+    mapSize = numOfCols * numOfRows;
+    map_.resize(mapSize, false);
+    for (int i = 0; i < numOfRows; i++) {
         getline(file, line);
-        for (int j = 0; j < num_of_cols; j++)
-            map[linearizeCoordinate(i, j)] = (line[j] != '.');
+        for (int j = 0; j < numOfCols; j++) {
+            map_[linearizeCoordinate(i, j)] = (line[j] != '.');
+        }
     }
     file.close();
     return true;
@@ -65,95 +65,97 @@ Instance::loadAgentsAndTasks()
     using namespace std;
     using namespace boost;
 
-    ifstream file(agent_task_fname.c_str());
-    if (!file.is_open())
+    ifstream file(agentTaskFname_.c_str());
+    if (!file.is_open()) {
         return false;
+    }
 
     string line;
     char_separator<char> sep(",");
     tokenizer<char_separator<char>>::iterator begin;
 
     getline(file, line);
-    if (num_of_agents != atoi(line.c_str())) {
+    if (numOfAgents_ != atoi(line.c_str())) {
         PLOGE << "The number of robots passed in command line and the agent file do not match.\n";
         exit(-1);
     }
 
-    if (num_of_agents == 0) {
+    if (numOfAgents_ == 0) {
         PLOGE << "The number of agents should be larger than 0.\n";
         exit(-1);
     }
 
-    if (num_of_tasks == 0) {
+    if (numOfTasks_ == 0) {
         PLOGE << "The number of tasks should be larger than 0.\n";
         exit(-1);
     }
 
     // Reading the agent start locations
-    start_locations.resize(num_of_agents);
+    startLocations_.resize(numOfAgents_);
 
-    for (int i = 0; i < num_of_agents; i++) {
+    for (int i = 0; i < numOfAgents_; i++) {
         getline(file, line);
         tokenizer<char_separator<char>> tokenizer(line, sep);
         begin = tokenizer.begin();
         int col = atoi((*begin).c_str());
         begin++;
         int row = atoi((*begin).c_str());
-        start_locations[i] = linearizeCoordinate(row, col);
-        assert(!isObstacle(start_locations[i]));
+        startLocations_[i] = linearizeCoordinate(row, col);
+        assert(!isObstacle(startLocations_[i]));
     }
 
     // Skipping the extra white lines
-    while (!file.eof() && line[0] != 't')
+    while (!file.eof() && line[0] != 't') {
         getline(file, line);
+    }
 
     getline(file, line);
-    if (num_of_tasks != atoi(line.c_str())) {
-        PLOGE
-          << "The number of tasks passed in the command line and the agent file do not match.\n";
+    if (numOfTasks_ != atoi(line.c_str())) {
+        PLOGE << "The number of tasks passed in the command line and the agent file do not match.\n";
         exit(-1);
     }
 
     // Reading the task goal locations
-    task_locations.resize(num_of_tasks);
+    taskLocations_.resize(numOfTasks_);
 
-    for (int i = 0; i < num_of_tasks; i++) {
+    for (int i = 0; i < numOfTasks_; i++) {
         getline(file, line);
         tokenizer<char_separator<char>> tokenizer(line, sep);
         begin = tokenizer.begin();
         int col = atoi((*begin).c_str());
         begin++;
         int row = atoi((*begin).c_str());
-        task_locations[i] = linearizeCoordinate(row, col);
-        assert(!isObstacle(task_locations[i]));
+        taskLocations_[i] = linearizeCoordinate(row, col);
+        assert(!isObstacle(taskLocations_[i]));
     }
 
     // Skipping the extra white lines
-    while (!file.eof() && line[0] != 't')
+    while (!file.eof() && line[0] != 't') {
         getline(file, line);
+    }
 
     getline(file, line);
-    int num_dependencies = atoi(line.c_str());
-    vector<pair<int, int>> temporal_dependencies;
+    int numDependencies = atoi(line.c_str());
+    vector<pair<int, int>> temporalDependencies;
 
-    for (int i = 0; i < num_dependencies; i++) {
+    for (int i = 0; i < numDependencies; i++) {
         getline(file, line);
         tokenizer<char_separator<char>> tokenizer(line, sep);
         begin = tokenizer.begin();
         int predecessor = atoi((*begin).c_str());
         begin++;
         int successor = atoi((*begin).c_str());
-        temporal_dependencies.push_back(make_pair(predecessor, successor));
+        temporalDependencies.emplace_back(predecessor, successor);
     }
 
-    for (pair<int, int> dependency : temporal_dependencies) {
+    for (pair<int, int> dependency : temporalDependencies) {
         int i, j;
         tie(i, j) = dependency;
-        task_dependencies[j].push_back(i);
+        taskDependencies_[j].push_back(i);
     }
 
-    PLOGD << "# Agents: " << num_of_agents << "\t # Tasks: " << num_of_tasks
-          << "\t # Dependencies: " << num_dependencies << endl;
+    PLOGD << "# Agents: " << numOfAgents_ << "\t # Tasks: " << numOfTasks_
+          << "\t # Dependencies: " << numDependencies << endl;
 
     file.close();
     return true;
@@ -163,21 +165,23 @@ list<int>
 Instance::getNeighbors(int current) const
 {
     list<int> neighbors;
-    int candidates[4] = { current + 1, current - 1, current + num_of_cols, current - num_of_cols };
-    for (int next : candidates)
-        if (validMove(current, next))
+    int candidates[4] = { current + 1, current - 1, current + numOfCols, current - numOfCols };
+    for (int next : candidates) {
+        if (validMove(current, next)) {
             neighbors.emplace_back(next);
+        }
+    }
     return neighbors;
 }
 
 void
 Instance::printMap() const
 {
-    for (int i = 0; i < num_of_rows; i++) {
-        for (int j = 0; j < num_of_cols; j++) {
-            if (map[linearizeCoordinate(i, j)])
+    for (int i = 0; i < numOfRows; i++) {
+        for (int j = 0; j < numOfCols; j++) {
+            if (map_[linearizeCoordinate(i, j)]) {
                 PLOGI << '@';
-            else
+            } else
                 PLOGI << '.';
         }
         PLOGI << endl;

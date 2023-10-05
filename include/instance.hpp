@@ -6,13 +6,13 @@
 class Instance
 {
   protected:
-    vector<bool> map;
-    string map_fname;
-    string agent_task_fname;
+    vector<bool> map_;
+    string mapFname_;
+    string agentTaskFname_;
 
-    int num_of_agents, num_of_tasks;
-    vector<int> task_locations, start_locations;
-    unordered_map<int, vector<int>> task_dependencies;
+    int numOfAgents_{}, numOfTasks_{};
+    vector<int> taskLocations_, startLocations_;
+    unordered_map<int, vector<int>> taskDependencies_;
 
     bool loadMap();
     bool loadAgentsAndTasks();
@@ -25,77 +25,62 @@ class Instance
     friend class SingleAgentSolver;
 
   public:
-    int map_size, num_of_cols, num_of_rows;
+    int mapSize{}, numOfCols{}, numOfRows{};
 
-    Instance() {}
-    Instance(const string& map_fname,
-             const string& agent_task_fname,
-             int num_of_agents = 0,
-             int num_of_tasks = 0);
+    Instance() = default;
+    Instance(const string& mapFname,
+             const string& agentTaskFname,
+             int numOfAgents = 0,
+             int numOfTasks = 0);
 
-    inline int getTaskLocations(int task) const { return task_locations[task]; }
+    inline int getTaskLocations(int task) const { return taskLocations_[task]; }
     vector<int> getTaskLocations(vector<int> tasks) const
     {
-        vector<int> task_locs(tasks.size(), 0);
-        for (int i = 0; i < (int)tasks.size(); i++)
-            task_locs[i] = task_locations[tasks[i]];
-        return task_locs;
+        vector<int> taskLocs(tasks.size(), 0);
+        for (int i = 0; i < (int)tasks.size(); i++) {
+            taskLocs[i] = taskLocations_[tasks[i]];
+        }
+        return taskLocs;
     }
-    list<int> getNeighbors(int curr) const;
-    inline bool isObstacle(int loc) const { return map[loc]; }
+    list<int> getNeighbors(int current) const;
+    inline bool isObstacle(int loc) const { return map_[loc]; }
     inline bool validMove(int curr, int next) const
     {
-        if (next < 0 || next >= map_size || map[next])
+        if (next < 0 || next >= mapSize || map_[next]) {
             return false;
+        }
         return getManhattanDistance(curr, next) < 2;
     };
 
     inline int linearizeCoordinate(int row, int col) const
     {
-        return (this->num_of_cols * row + col);
+        return (this->numOfCols * row + col);
     }
-    inline int getRowCoordinate(int id) const { return id / this->num_of_cols; }
-    inline int getColCoordinate(int id) const { return id % this->num_of_cols; }
+    inline int getRowCoordinate(int id) const { return id / this->numOfCols; }
+    inline int getColCoordinate(int id) const { return id % this->numOfCols; }
     inline pair<int, int> getCoordinate(int id) const
     {
         return make_pair(getRowCoordinate(id), getColCoordinate(id));
     }
-    inline int getCols() const { return num_of_cols; }
-    inline int getAgentNum() const { return num_of_agents; }
-    inline int getTasksNum() const { return num_of_tasks; }
-    inline vector<int> getTaskLocations() const { return task_locations; }
-    inline vector<int> getStartLocations() const { return start_locations; }
-    inline unordered_map<int, vector<int>> getTaskDependencies() const { return task_dependencies; }
+    inline int getCols() const { return numOfCols; }
+    inline int getAgentNum() const { return numOfAgents_; }
+    inline int getTasksNum() const { return numOfTasks_; }
+    inline vector<int> getTaskLocations() const { return taskLocations_; }
+    inline vector<int> getStartLocations() const { return startLocations_; }
+    inline unordered_map<int, vector<int>> getTaskDependencies() const { return taskDependencies_; }
     inline int getManhattanDistance(int loc1, int loc2) const
     {
-        int loc1_x = getRowCoordinate(loc1);
-        int loc1_y = getColCoordinate(loc1);
-        int loc2_x = getRowCoordinate(loc2);
-        int loc2_y = getColCoordinate(loc2);
+        int loc1X = getRowCoordinate(loc1);
+        int loc1Y = getColCoordinate(loc1);
+        int loc2X = getRowCoordinate(loc2);
+        int loc2Y = getColCoordinate(loc2);
 
-        return abs(loc1_x - loc2_x) + abs(loc1_y - loc2_y);
+        return abs(loc1X - loc2X) + abs(loc1Y - loc2Y);
     }
-
     inline int getManhattanDistance(const pair<int, int>& loc1, const pair<int, int>& loc2) const
     {
         return abs(loc1.first - loc2.first) + abs(loc1.second - loc2.second);
     }
-
-    int getDegree(int loc) const
-    {
-        assert(loc >= 0 && loc < map_size && !map[loc]);
-        int degree = 0;
-        if (0 < loc - num_of_cols && !map[loc - num_of_cols])
-            degree++;
-        if (loc + num_of_cols < map_size && !map[loc + num_of_cols])
-            degree++;
-        if (loc % num_of_cols > 0 && !map[loc - 1])
-            degree++;
-        if (loc % num_of_cols < num_of_cols - 1 && !map[loc + 1])
-            degree++;
-        return degree;
-    }
-
-    int getDefaultNumberOfTasks() const { return num_of_tasks; }
-    int getDefaultNumberOfAgents() const { return num_of_agents; }
+    int getDefaultNumberOfTasks() const { return numOfTasks_; }
+    int getDefaultNumberOfAgents() const { return numOfAgents_; }
 };

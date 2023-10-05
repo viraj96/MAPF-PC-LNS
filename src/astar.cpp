@@ -1,7 +1,7 @@
 #include "astar.hpp"
 
 void
-SingleAgentSolver::compute_heuristics()
+SingleAgentSolver::computeHeuristics()
 {
     struct Node
     {
@@ -11,7 +11,7 @@ SingleAgentSolver::compute_heuristics()
           , value(value)
         {}
 
-        struct compare_node
+        struct CompareNode
         {
             bool operator()(const Node& lhs, const Node& rhs) const
             {
@@ -21,32 +21,34 @@ SingleAgentSolver::compute_heuristics()
     };
 
     heuristic.clear();
-    heuristic_landmarks.clear();
-    heuristic.resize(goal_locations.size());
-    heuristic_landmarks.resize(goal_locations.size(), 0);
+    heuristicLandmarks.clear();
+    heuristic.resize(goalLocations.size());
+    heuristicLandmarks.resize(goalLocations.size(), 0);
 
-    for (int i = 0; i < (int)goal_locations.size(); i++) {
+    for (int i = 0; i < (int)goalLocations.size(); i++) {
         heuristic[i].resize(instance.map_size, MAX_TIMESTEP);
-        pairing_heap<Node, compare<Node::compare_node>> heap;
+        pairing_heap<Node, compare<Node::CompareNode>> heap;
 
         // h-val of the goal is always 0
-        Node root(goal_locations[i], 0);
-        heuristic[i][goal_locations[i]] = 0;
+        Node root(goalLocations[i], 0);
+        heuristic[i][goalLocations[i]] = 0;
 
         heap.push(root);
 
         while (!heap.empty()) {
             Node current = heap.top();
             heap.pop();
-            for (int next_location : instance.getNeighbors(current.location))
-                if (heuristic[i][next_location] > current.value + 1) {
-                    heuristic[i][next_location] = current.value + 1;
-                    Node next(next_location, heuristic[i][next_location]);
+            for (int nextLocation : instance.getNeighbors(current.location)) {
+                if (heuristic[i][nextLocation] > current.value + 1) {
+                    heuristic[i][nextLocation] = current.value + 1;
+                    Node next(nextLocation, heuristic[i][nextLocation]);
                     heap.push(next);
                 }
+            }
         }
     }
 
-    for (int i = (int)goal_locations.size() - 2; i >= 0; i--)
-        heuristic_landmarks[i] = heuristic_landmarks[i + 1] + heuristic[i + 1][goal_locations[i]];
+    for (int i = (int)goalLocations.size() - 2; i >= 0; i--) {
+        heuristicLandmarks[i] = heuristicLandmarks[i + 1] + heuristic[i + 1][goalLocations[i]];
+}
 }

@@ -3,16 +3,15 @@
 #include <boost/unordered_map.hpp>
 #include <boost/unordered_set.hpp>
 #include <chrono>
-#include <ctime>
 #include <fstream>
-#include <iomanip>  // std::setprecision
-#include <iostream> // std::cout, std::fixed
+#include <iostream>
 #include <list>
 #include <map>
 #include <set>
 #include <deque>
 #include <stack>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 using boost::unordered_map;
@@ -47,10 +46,9 @@ using std::tuple;
 using std::unique_ptr;
 using std::vector;
 using namespace std::chrono;
-typedef std::chrono::high_resolution_clock Time;
-typedef std::chrono::duration<float> fsec;
-typedef std::priority_queue<pair<int, int>, vector<pair<int, int>>, std::greater<pair<int, int>>>
-  pq;
+using Time = std::chrono::high_resolution_clock;
+using fsec = std::chrono::duration<float>;
+using pq = std::priority_queue<pair<int, int>, vector<pair<int, int>>, std::greater<>>;
 
 #define MAX_TIMESTEP INT_MAX / 2
 #define MAX_COST INT_MAX / 2
@@ -58,17 +56,17 @@ typedef std::priority_queue<pair<int, int>, vector<pair<int, int>>, std::greater
 
 struct PathEntry
 {
-    bool is_goal;
+    bool isGoal{};
     int location = -1;
 };
 
 struct Path
 {
-    int begin_time = 0;
-    int end_time() { return begin_time + (int)size() - 1; }
+    int beginTime = 0;
+    int endTime() { return beginTime + (int)size() - 1; }
 
     vector<PathEntry> path;
-    vector<int> timestamps;
+    vector<int> timeStamps;
 
     bool empty() const { return path.empty(); }
     size_t size() const { return path.size(); }
@@ -81,7 +79,7 @@ struct Path
     PathEntry& operator[](int idx) { return path[idx]; }
     const PathEntry& operator[](int idx) const { return path[idx]; }
 
-    Path() {}
+    Path() = default;
     Path(int size)
       : path(vector<PathEntry>(size))
     {}
@@ -96,21 +94,21 @@ struct IterationStats
 {
     double runtime;
     string algorithm;
-    int num_of_agents, num_of_tasks, sum_of_costs, sum_of_costs_lower_bound,
-      num_of_conflicting_pairs;
+    int numOfAgents, numOfTasks, sumOfCosts, sumOfCostsLowerBound,
+      numOfConflictingPairs;
     IterationStats(double runtime,
                    string algorithm,
-                   int num_of_agents,
-                   int num_of_tasks,
-                   int sum_of_costs,
-                   int sum_of_costs_lower_bound = 0,
-                   int num_of_conflicting_pairs = 0)
+                   int numOfAgents,
+                   int numOfTasks,
+                   int sumOfCosts,
+                   int sumOfCostsLowerBound = 0,
+                   int numOfConflictingPairs = 0)
       : runtime(runtime)
-      , algorithm(algorithm)
-      , num_of_agents(num_of_agents)
-      , num_of_tasks(num_of_tasks)
-      , sum_of_costs(sum_of_costs)
-      , sum_of_costs_lower_bound(sum_of_costs_lower_bound)
-      , num_of_conflicting_pairs(num_of_conflicting_pairs)
+      , algorithm(std::move(algorithm))
+      , numOfAgents(numOfAgents)
+      , numOfTasks(numOfTasks)
+      , sumOfCosts(sumOfCosts)
+      , sumOfCostsLowerBound(sumOfCostsLowerBound)
+      , numOfConflictingPairs(numOfConflictingPairs)
     {}
 };
