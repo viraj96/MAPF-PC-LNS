@@ -12,7 +12,7 @@ class Instance
 
     int numOfAgents_{}, numOfTasks_{};
     vector<int> taskLocations_, startLocations_;
-    unordered_map<int, vector<int>> taskDependencies_;
+    unordered_map<int, vector<int>> taskDependencies_; // Maps given task to all its predecessors as given in the input
 
     bool loadMap();
     bool loadAgentsAndTasks();
