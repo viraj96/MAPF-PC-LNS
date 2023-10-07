@@ -129,6 +129,13 @@ LNS::run()
             previous_solution = solution;
 
             prepareNextIteration();
+            for (int agent = 0; agent < instance.getAgentNum(); agent++) {
+                for (int tasks = 0; tasks < solution.getAssignedTaskSize(agent); tasks++) {
+                    int task_idx = solution.getAgentGlobalTasks(agent, tasks);
+                    assert(solution.paths[task_idx].end_time() ==
+                           solution.agents[agent].path.timestamps[tasks]);
+                }
+            }
 
             // Compute regret for each of the tasks that are in the conflicting set
             // Pick the best one and repeat the whole process aboe
@@ -290,9 +297,12 @@ LNS::prepareNextIteration()
             solution.agents[agent].task_paths[task_position] = solution.paths[task];
 
             // Once the path was found fix the begin times for subsequent tasks of the agent
-            for (int k = task_position + 1; k < solution.getAssignedTaskSize(agent); k++)
+            for (int k = task_position + 1; k < solution.getAssignedTaskSize(agent); k++) {
                 solution.agents[agent].task_paths[k].begin_time =
                   solution.agents[agent].task_paths[k - 1].end_time();
+                int task_idx = solution.getAgentGlobalTasks(agent, k);
+                solution.paths[k].begin_time = solution.agents[agent].task_paths[k].begin_time;
+            }
         }
     }
 
@@ -306,15 +316,73 @@ void
 LNS::computeRegret()
 {
     solution.neighbor.regret_max_heap.clear();
+
+    // combine the tasks to form meta-tasks and then compute regret for each task
+    vector<vector<int>> ancestors;
+    vector<deque<int>> meta_tasks;
+    ancestors.resize(instance.getTasksNum());
+    for (pair<int, int> precedence_constraint : (solution.precedence_constraints))
+        ancestors[precedence_constraint.second].push_back(precedence_constraint.first);
+
+    for (int task : solution.neighbor.conflicted_tasks) {
+        deque<int> meta_task;
+        unordered_set<int> set_of_tasks_to_complete;
+        stack<int> q({ task });
+        while (!q.empty()) {
+            int current = q.top();
+            q.pop();
+            if (set_of_tasks_to_complete.find(current) != set_of_tasks_to_complete.end())
+                continue;
+            if (find(solution.neighbor.conflicted_tasks.begin(),
+                     solution.neighbor.conflicted_tasks.end(),
+                     current) != solution.neighbor.conflicted_tasks.end()) {
+                set_of_tasks_to_complete.insert(current);
+                meta_task.push_back(current);
+            }
+            for (int agent_task_ancestor : ancestors[current])
+                if (set_of_tasks_to_complete.find(agent_task_ancestor) ==
+                    set_of_tasks_to_complete.end())
+                    q.push(agent_task_ancestor);
+        }
+        meta_tasks.push_back(meta_task);
+    }
+
+    // for (deque<int> meta_task : meta_tasks)
+    //     computeRegretForMetaTask(meta_task);
+
     for (int task : solution.neighbor.conflicted_tasks)
         computeRegretForTask(task);
 }
 
 void
+LNS::computeRegretForMetaTask(deque<int> meta_task)
+{
+
+    vector<Path> task_paths = solution.paths;
+    vector<vector<int>> task_assignments = solution.task_assignments;
+    vector<pair<int, int>> precedence_constraints = solution.precedence_constraints;
+    while (!meta_task.empty()) {
+        int current = meta_task.back();
+        // computeRegretForTask(current, &task_paths, &task_assignments, &precedence_constraints);
+        // ensure that a path for current is stored temporarily in the task_paths so that later
+        // tasks down the line can use this path information
+
+        meta_task.pop_back();
+    }
+}
+
+void
 LNS::computeRegretForTask(int task)
+//   vector<Path>* task_paths,
+//   vector<vector<int>>* task_assignments,
+//   vector<pair<int, int>>* precedence_constraints)
 {
 
     pairing_heap<Utility, compare<Utility::compare_node>> service_times;
+
+    // vector<Path>& task_paths_ref = *task_paths;
+    // vector<vector<int>>& task_assignments_ref = *task_assignments;
+    // vector<pair<int, int>>& precedence_constraints_ref = *precedence_constraints;
 
     // Find the precedence constraints involving the task or any other task that is not in the
     // conflicting set
@@ -352,8 +420,12 @@ LNS::computeRegretForTask(int task)
             PLOGD << "current = " << current << endl;
             int agent = solution.getAgentWithTask(current);
             int task_idx = solution.getLocalTaskIndex(agent, current);
+            // if (earliest_timestep < solution.paths[current].end_time()) {
             if (earliest_timestep < solution.agents[agent].path.timestamps[task_idx]) {
                 PLOGD << "Going to update earliest timestep from " << earliest_timestep << endl;
+                // earliest_timestep = solution.paths[current].end_time();
+                assert(solution.paths[current].end_time() ==
+                       solution.agents[agent].path.timestamps[task_idx]);
                 earliest_timestep = solution.agents[agent].path.timestamps[task_idx];
                 PLOGD << "New earliest timestep " << earliest_timestep << endl;
                 PLOGD << "Came from " << agent << ", " << current << " at " << task_idx << endl;
@@ -371,8 +443,11 @@ LNS::computeRegretForTask(int task)
             continue;
         int agent = solution.getAgentWithTask(succ);
         int task_idx = solution.getLocalTaskIndex(agent, succ);
+        // if (latest_timestep > solution.paths[succ].end_time()) {
+        assert(solution.paths[succ].end_time() == solution.agents[agent].path.timestamps[task_idx]);
         if (latest_timestep > solution.agents[agent].path.timestamps[task_idx]) {
             PLOGD << "Going to update latest timestep from " << latest_timestep << endl;
+            // latest_timestep = solution.paths[succ].end_time();
             latest_timestep = solution.agents[agent].path.timestamps[task_idx];
             PLOGD << "New latest timestep " << latest_timestep << endl;
             PLOGD << "Came from " << agent << ", " << succ << " at " << task_idx << endl;
@@ -407,6 +482,9 @@ LNS::computeRegretForTaskWithAgent(
     int first_valid_position = 0, last_valid_position = solution.getAssignedTaskSize(agent) + 1;
     vector<int> agent_tasks = solution.getAgentGlobalTasks(agent);
     for (int j = solution.getAssignedTaskSize(agent) - 1; j >= 0; j--) {
+        int task_idx = solution.getAgentGlobalTasks(agent, j);
+        // if (solution.paths[task_idx].end_time() <= earliest_timestep) {
+        assert(solution.paths[task_idx].end_time() == solution.agents[agent].path.timestamps[j]);
         if (solution.agents[agent].path.timestamps[j] <= earliest_timestep) {
             first_valid_position = j + 1;
             break;
@@ -414,6 +492,9 @@ LNS::computeRegretForTaskWithAgent(
     }
     // compute the last position along the agent's task assignment where we can insert this task
     for (int j = 1; j < solution.getAssignedTaskSize(agent); j++) {
+        // if (solution.paths[j].end_time() >= latest_timestep) {
+        int task_idx = solution.getAgentGlobalTasks(agent, j);
+        assert(solution.paths[task_idx].end_time() == solution.agents[agent].path.timestamps[j]);
         if (solution.agents[agent].path.timestamps[j] >= latest_timestep) {
             last_valid_position = j - 1;
             break;
