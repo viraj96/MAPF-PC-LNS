@@ -189,6 +189,7 @@ class LNS {
   bool run();
   bool buildGreedySolution();
   void prepareNextIteration();
+  unordered_set<int> prepareNextIterationv2();
   void printPaths() const;
   bool validateSolution(set<int>* conflictedTasks = nullptr);
   void buildConstraintTable(ConstraintTable& constraintTable, int task);
