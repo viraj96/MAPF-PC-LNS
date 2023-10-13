@@ -1,5 +1,6 @@
 #include "instance.hpp"
 #include <boost/tokenizer.hpp>
+#include "utils.hpp"
 
 Instance::Instance(const string& mapFname, const string& agentTaskFname,
                    int numOfAgents, int numOfTasks)
@@ -147,12 +148,17 @@ bool Instance::loadAgentsAndTasks() {
     int i, j;
     tie(i, j) = dependency;
     taskDependencies_[j].push_back(i);
+    inputPrecedenceConstraints_.emplace_back(i, j);
   }
 
   PLOGD << "# Agents: " << numOfAgents_ << "\t # Tasks: " << numOfTasks_
         << "\t # Dependencies: " << numDependencies << endl;
 
   file.close();
+
+  assert(
+      topologicalSort(this, &inputPrecedenceConstraints_, inputPlanningOrder_));
+
   return true;
 }
 

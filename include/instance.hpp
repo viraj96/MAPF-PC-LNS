@@ -11,9 +11,10 @@ class Instance {
   string agentTaskFname_;
 
   int numOfAgents_{}, numOfTasks_{};
-  vector<int> taskLocations_, startLocations_;
+  vector<int> taskLocations_, startLocations_, inputPlanningOrder_;
   // Maps given task to all its predecessors as given in the input
   unordered_map<int, vector<int>> taskDependencies_;
+  vector<pair<int, int>> inputPrecedenceConstraints_;
 
   bool loadMap();
   bool loadAgentsAndTasks();
@@ -64,6 +65,12 @@ class Instance {
   inline vector<int> getStartLocations() const { return startLocations_; }
   inline unordered_map<int, vector<int>> getTaskDependencies() const {
     return taskDependencies_;
+  }
+  inline vector<pair<int, int>> getInputPrecedenceConstraints() const {
+    return inputPrecedenceConstraints_;
+  }
+  inline vector<int> getInputPlanningOrder() const {
+    return inputPlanningOrder_;
   }
   inline int getManhattanDistance(int loc1, int loc2) const {
     int loc1X = getRowCoordinate(loc1);

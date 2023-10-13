@@ -10,12 +10,60 @@ struct Agent {
   int id;
   Path path;
   vector<Path> taskPaths;
+  vector<int> taskAssignments;
+  vector<pair<int, int>> intraPrecedenceConstraints;
   SingleAgentSolver* pathPlanner = nullptr;
 
   Agent(const Instance& instance, int id) : id(id) {
     pathPlanner = new MultiLabelSpaceTimeAStar(instance, id);
   }
   ~Agent() { delete pathPlanner; }
+
+  int getLocalTaskIndex(int globalTask) const {
+    assert(std::find(taskAssignments.begin(), taskAssignments.end(),
+                     globalTask) != taskAssignments.end());
+    for (int i = 0; i < (int)taskAssignments.size(); i++) {
+      if (taskAssignments[i] == globalTask) {
+        return i;
+      }
+    }
+    assert(false);
+  }
+
+  inline void insertPrecedenceConstraint(int taskA, int taskB) {
+    assert(std::find(taskAssignments.begin(), taskAssignments.end(), taskA) !=
+           taskAssignments.end());
+    assert(std::find(taskAssignments.begin(), taskAssignments.end(), taskB) !=
+           taskAssignments.end());
+    intraPrecedenceConstraints.emplace_back(taskA, taskB);
+  }
+
+  void clearIntraAgentPrecedenceConstraint(int task) {
+    assert(std::find(taskAssignments.begin(), taskAssignments.end(), task) !=
+           taskAssignments.end());
+    int taskPosition = getLocalTaskIndex(task);
+    int previousTask = -1, nextTask = -1;
+    if (taskPosition != 0) {
+      previousTask = taskAssignments[taskPosition - 1];
+    }
+    if (taskPosition != (int)taskAssignments.size() - 1) {
+      nextTask = taskAssignments[taskPosition + 1];
+    }
+
+    intraPrecedenceConstraints.erase(
+        std::remove_if(intraPrecedenceConstraints.begin(),
+                       intraPrecedenceConstraints.end(),
+                       [task, previousTask, nextTask](pair<int, int> x) {
+                         return (
+                             (x.first == previousTask && x.second == task) ||
+                             (x.first == task && x.second == nextTask));
+                       }),
+        intraPrecedenceConstraints.end());
+
+    if (previousTask != -1 && nextTask != -1) {
+      insertPrecedenceConstraint(previousTask, nextTask);
+    }
+  }
 };
 
 // We need min-heap for the utility since we want to quickly access the tasks which take the minimum time to complete
@@ -54,8 +102,18 @@ struct Regret {
   };
 };
 
+struct ValidTimeRanges {
+  int earliestTimestep, latestTimestep;
+};
+
+struct TaskRegretPacket {
+  ValidTimeRanges timeRange;
+  int task, agent, taskPosition;
+};
+
 struct Neighbor {
   set<int> conflictedTasks;
+  map<int, bool> commitedTasks;
   map<int, int> conflictedTasksPathSize;
   pairing_heap<Regret, compare<Regret::CompareNode>> regretMaxHeap;
 };
@@ -63,82 +121,42 @@ struct Neighbor {
 class Solution {
  public:
   int sumOfCosts{};
-  Neighbor neighbor;
-  vector<Path> paths;
   vector<Agent> agents;
+  map<int, int> taskAgentMap; // (key, value) - (global task, agent)
   int numOfAgents, numOfTasks;
-  vector<vector<int>> taskAssignments;
-  vector<pair<int, int>> precedenceConstraints;
 
   Solution(const Instance& instance) {
     numOfTasks = instance.getTasksNum();
     numOfAgents = instance.getAgentNum();
-    taskAssignments.resize(numOfAgents);
-
     agents.reserve(numOfAgents);
     for (int i = 0; i < numOfAgents; i++) {
       agents.emplace_back(instance, i);
     }
   }
 
-  int getAgentWithTask(int globalTask) const {
-    for (int i = 0; i < numOfAgents; i++) {
-      for (int j = 0; j < (int)taskAssignments[i].size(); j++) {
-        if (taskAssignments[i][j] == globalTask) {
-          return i;
-        }
-      }
-    }
-    assert(false);
-  }
+  int getAgentWithTask(int globalTask) { return taskAgentMap[globalTask]; }
 
   int getLocalTaskIndex(int agent, int globalTask) const {
-    for (int i = 0; i < (int)taskAssignments[agent].size(); i++) {
-      if (taskAssignments[agent][i] == globalTask) {
-        return i;
-      }
-    }
-    assert(false);
+    return agents[agent].getLocalTaskIndex(globalTask);
   }
 
   inline vector<int> getAgentGlobalTasks(int agent) const {
-    return taskAssignments[agent];
+    return agents[agent].taskAssignments;
   }
   inline int getAgentGlobalTasks(int agent, int taskIndex) const {
-    return taskAssignments[agent][taskIndex];
+    return agents[agent].taskAssignments[taskIndex];
   }
 
   inline void assignTaskToAgent(int agent, int task) {
-    taskAssignments[agent].push_back(task);
+    taskAgentMap.insert(make_pair(task, agent));
+    agents[agent].taskAssignments.push_back(task);
   }
 
-  inline void insertPrecedenceConstraint(int taskA, int taskB) {
-    precedenceConstraints.emplace_back(taskA, taskB);
-  }
-
-  void clearIntraAgentPrecedenceConstraint(int task) {
-    int agent = getAgentWithTask(task),
-        taskPosition = getLocalTaskIndex(agent, task);
-    int previousTask = -1, nextTask = -1;
-    if (taskPosition != 0) {
-      previousTask = taskAssignments[agent][taskPosition - 1];
-    }
-    if (taskPosition != (int)taskAssignments[agent].size() - 1) {
-      nextTask = taskAssignments[agent][taskPosition + 1];
-    }
-
-    precedenceConstraints.erase(
-        std::remove_if(
-            precedenceConstraints.begin(), precedenceConstraints.end(),
-            [task, previousTask, nextTask](pair<int, int> x) {
-              return ((x.first == previousTask && x.second == task) ||
-                      (x.first == task && x.second == nextTask));
-            }),
-        precedenceConstraints.end());
-
-    if (previousTask != -1 && nextTask != -1) {
-      insertPrecedenceConstraint(previousTask, nextTask);
-    }
+  inline void assignTaskToAgent(int agent, int task, int taskPosition) {
+    assert(taskPosition >= 0 &&
+           taskPosition <= (int)agents[agent].taskAssignments.size());
+    agents[agent].taskAssignments.insert(
+        agents[agent].taskAssignments.begin() + taskPosition, task);
   }
 
   void joinPaths(const vector<int>& agentsToCompute) {
@@ -188,8 +206,7 @@ class LNS {
 
   bool run();
   bool buildGreedySolution();
-  void prepareNextIteration();
-  unordered_set<int> prepareNextIterationv2();
+  void prepareNextIteration(Neighbor* neighbor);
   void printPaths() const;
   bool validateSolution(set<int>* conflictedTasks = nullptr);
   void buildConstraintTable(ConstraintTable& constraintTable, int task);
@@ -199,18 +216,15 @@ class LNS {
                             vector<vector<int>>* taskAssignments,
                             vector<pair<int, int>>* precedenceConstraints);
 
-  void computeRegret();
-  void regretBasedReinsertion();
-  void computeRegretForMetaTask(deque<int> metaTask);
-  void computeRegretForTask(int task);
-  void commitBestRegretTask(Regret bestRegret);
+  void computeRegret(Neighbor *neighbor);
+  void computeRegretForTask(int task, Neighbor* neighbor);
+  void commitBestRegretTask(Regret bestRegret, Neighbor* neighbor);
   void computeRegretForTaskWithAgent(
-      int task, int agent, int earliestTimestep, int latestTimestep,
-      vector<pair<int, int>>* precedenceConstraints,
-      pairing_heap<Utility, compare<Utility::CompareNode>>* serviceTimes);
-  Utility insertTask(int task, int agent, int taskPosition,
+      TaskRegretPacket regretPacket, vector<int> *taskAssignments, vector<Path>* taskPaths,
+      Neighbor *neighbor, pairing_heap<Utility, compare<Utility::CompareNode>>* serviceTimes);
+  Utility insertTask(TaskRegretPacket regretPacket,
                      vector<Path>* taskPaths,
-                     vector<vector<int>>* taskAssignments,
+                     vector<int>* taskAssignments,
                      vector<pair<int, int>>* precedenceConstraints,
                      bool commit = false);
 
@@ -220,9 +234,10 @@ class LNS {
           instance_.getCoordinate(instance_.getStartLocations()[i]);
       PLOGI << "Agent " << i << " : S = (" << startLoc.first << ", "
             << startLoc.second << ") ;\nGoals : \n";
-      for (int j = 0; j < (int)solution_.taskAssignments[i].size(); j++) {
+      for (int j = 0; j < (int)solution_.agents[i].taskAssignments.size();
+           j++) {
         pair<int, int> goalLoc =
-            instance_.getCoordinate(solution_.taskAssignments[i][j]);
+            instance_.getCoordinate(solution_.agents[i].taskAssignments[j]);
         PLOGI << "\t" << j << " : (" << goalLoc.first << " , " << goalLoc.second
               << ")\n";
       }

@@ -54,6 +54,7 @@ using pq =
 #define MAX_TIMESTEP INT_MAX / 2
 #define MAX_COST INT_MAX / 2
 #define MAX_NODES INT_MAX / 2
+#define UNASSIGNED -1
 
 struct PathEntry {
   bool isGoal{};
