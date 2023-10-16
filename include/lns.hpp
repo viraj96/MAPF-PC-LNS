@@ -38,6 +38,35 @@ struct Agent {
     intraPrecedenceConstraints.emplace_back(taskA, taskB);
   }
 
+  // This function inserts a precedence constraint when adding a new task into the agent task queue. This would involve removing the existing precedence constraint between the task before it and after it and then adding two new precedence constraints
+  void insertIntraAgentPrecedenceConstraint(int task, int taskPosition) {
+    int previousTask = -1, nextTask = -1;
+    if (taskPosition != 0) {
+      previousTask = taskAssignments[taskPosition - 1];
+    }
+    if (taskPosition != (int)taskAssignments.size() - 1) {
+      nextTask = taskAssignments[taskPosition - 1];
+    }
+    intraPrecedenceConstraints.erase(
+        std::remove_if(intraPrecedenceConstraints.begin(),
+                       intraPrecedenceConstraints.end(),
+                       [previousTask, nextTask](pair<int, int> x) {
+                         return (
+                             (x.first == previousTask && x.second == nextTask));
+                       }),
+        intraPrecedenceConstraints.end());
+    if (nextTask != -1) {
+      intraPrecedenceConstraints.insert(
+          intraPrecedenceConstraints.begin() + taskPosition,
+          make_pair(task, nextTask));
+    }
+    if (previousTask != -1) {
+      intraPrecedenceConstraints.insert(
+          intraPrecedenceConstraints.begin() + taskPosition,
+          make_pair(previousTask, task));
+    }
+  }
+
   void clearIntraAgentPrecedenceConstraint(int task) {
     assert(std::find(taskAssignments.begin(), taskAssignments.end(), task) !=
            taskAssignments.end());
@@ -122,7 +151,7 @@ class Solution {
  public:
   int sumOfCosts{};
   vector<Agent> agents;
-  map<int, int> taskAgentMap; // (key, value) - (global task, agent)
+  map<int, int> taskAgentMap;  // (key, value) - (global task, agent)
   int numOfAgents, numOfTasks;
 
   Solution(const Instance& instance) {
@@ -213,17 +242,17 @@ class LNS {
   void buildConstraintTable(ConstraintTable& constraintTable, int task);
 
   void buildConstraintTable(ConstraintTable& constraintTable, int task,
-                            int taskLocation, vector<Path>* paths,
+                            int taskLocation, vector<Path>* taskPaths,
                             vector<pair<int, int>>* precedenceConstraints);
 
-  void computeRegret(Neighbor *neighbor);
+  void computeRegret(Neighbor* neighbor);
   void computeRegretForTask(int task);
   void commitBestRegretTask(Regret bestRegret);
   void computeRegretForTaskWithAgent(
-      TaskRegretPacket regretPacket, vector<int> *taskAssignments, vector<Path>* taskPaths,
+      TaskRegretPacket regretPacket, vector<int>* taskAssignments,
+      vector<Path>* taskPaths, vector<pair<int, int>>* precedenceConstraints,
       pairing_heap<Utility, compare<Utility::CompareNode>>* serviceTimes);
-  Utility insertTask(TaskRegretPacket regretPacket,
-                     vector<Path>* taskPaths,
+  Utility insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
                      vector<int>* taskAssignments,
                      vector<pair<int, int>>* precedenceConstraints,
                      bool commit = false);
