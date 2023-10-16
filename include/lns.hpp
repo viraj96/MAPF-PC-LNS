@@ -112,7 +112,7 @@ struct TaskRegretPacket {
 };
 
 struct Neighbor {
-  set<int> conflictedTasks;
+  set<int> conflictedTasks, patchedTasks;
   map<int, bool> commitedTasks;
   map<int, int> conflictedTasksPathSize;
   pairing_heap<Regret, compare<Regret::CompareNode>> regretMaxHeap;
@@ -195,6 +195,7 @@ class LNS {
 
  public:
   double runtime = 0;
+  Neighbor lnsNeighborhood;
   vector<Path> initialPaths;
   list<IterationStats> iterationStats;
   int numOfFailures = 0, sumOfCosts = 0;
@@ -206,22 +207,21 @@ class LNS {
 
   bool run();
   bool buildGreedySolution();
-  void prepareNextIteration(Neighbor* neighbor);
+  void prepareNextIteration();
   void printPaths() const;
   bool validateSolution(set<int>* conflictedTasks = nullptr);
   void buildConstraintTable(ConstraintTable& constraintTable, int task);
 
   void buildConstraintTable(ConstraintTable& constraintTable, int task,
                             int taskLocation, vector<Path>* paths,
-                            vector<vector<int>>* taskAssignments,
                             vector<pair<int, int>>* precedenceConstraints);
 
   void computeRegret(Neighbor *neighbor);
-  void computeRegretForTask(int task, Neighbor* neighbor);
-  void commitBestRegretTask(Regret bestRegret, Neighbor* neighbor);
+  void computeRegretForTask(int task);
+  void commitBestRegretTask(Regret bestRegret);
   void computeRegretForTaskWithAgent(
       TaskRegretPacket regretPacket, vector<int> *taskAssignments, vector<Path>* taskPaths,
-      Neighbor *neighbor, pairing_heap<Utility, compare<Utility::CompareNode>>* serviceTimes);
+      pairing_heap<Utility, compare<Utility::CompareNode>>* serviceTimes);
   Utility insertTask(TaskRegretPacket regretPacket,
                      vector<Path>* taskPaths,
                      vector<int>* taskAssignments,
