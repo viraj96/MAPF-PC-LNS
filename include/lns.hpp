@@ -131,13 +131,8 @@ struct Regret {
   };
 };
 
-struct ValidTimeRanges {
-  int earliestTimestep, latestTimestep;
-};
-
 struct TaskRegretPacket {
-  ValidTimeRanges timeRange;
-  int task, agent, taskPosition;
+  int task, agent, taskPosition, earliestTimestep;
 };
 
 struct Neighbor {
