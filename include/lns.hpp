@@ -14,6 +14,10 @@ struct Agent {
   vector<pair<int, int>> intraPrecedenceConstraints;
   SingleAgentSolver* pathPlanner = nullptr;
 
+  Agent(const Agent&) = default;
+  Agent(Agent&&) = delete;
+  Agent& operator=(const Agent&) = default;
+  Agent& operator=(Agent&&) = delete;
   Agent(const Instance& instance, int id) : id(id) {
     pathPlanner = new MultiLabelSpaceTimeAStar(instance, id);
   }
@@ -140,6 +144,7 @@ struct Neighbor {
   map<int, bool> commitedTasks;
   map<int, int> conflictedTasksPathSize;
   pairing_heap<Regret, compare<Regret::CompareNode>> regretMaxHeap;
+  map<int, pairing_heap<Utility, compare<Utility::CompareNode>>> serviceTimesHeapMap;
 };
 
 class Solution {
@@ -155,6 +160,9 @@ class Solution {
     agents.reserve(numOfAgents);
     for (int i = 0; i < numOfAgents; i++) {
       agents.emplace_back(instance, i);
+    }
+    for (int i = 0; i < numOfTasks; i++) {
+      taskAgentMap.insert(make_pair(i, UNASSIGNED));
     }
   }
 
@@ -172,7 +180,7 @@ class Solution {
   }
 
   inline void assignTaskToAgent(int agent, int task) {
-    taskAgentMap.insert(make_pair(task, agent));
+    taskAgentMap[task] = agent;
     agents[agent].taskAssignments.push_back(task);
   }
 
@@ -240,8 +248,8 @@ class LNS {
                             int taskLocation, vector<Path>* taskPaths,
                             vector<pair<int, int>>* precedenceConstraints);
 
-  void computeRegret(Neighbor* neighbor);
-  void computeRegretForTask(int task);
+  void computeRegret(bool firstIteration);
+  void computeRegretForTask(int task, bool firstIteration);
   void commitBestRegretTask(Regret bestRegret);
   void computeRegretForTaskWithAgent(
       TaskRegretPacket regretPacket, vector<int>* taskAssignments,
