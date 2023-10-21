@@ -49,7 +49,7 @@ struct Agent {
       previousTask = taskAssignments[taskPosition - 1];
     }
     if (taskPosition != (int)taskAssignments.size() - 1) {
-      nextTask = taskAssignments[taskPosition - 1];
+      nextTask = taskAssignments[taskPosition + 1];
     }
     intraPrecedenceConstraints.erase(
         std::remove_if(intraPrecedenceConstraints.begin(),
@@ -59,15 +59,15 @@ struct Agent {
                              (x.first == previousTask && x.second == nextTask));
                        }),
         intraPrecedenceConstraints.end());
+    if (previousTask != -1) {
+      intraPrecedenceConstraints.insert(
+          intraPrecedenceConstraints.begin() + taskPosition - 1,
+          make_pair(previousTask, task));
+    }
     if (nextTask != -1) {
       intraPrecedenceConstraints.insert(
           intraPrecedenceConstraints.begin() + taskPosition,
           make_pair(task, nextTask));
-    }
-    if (previousTask != -1) {
-      intraPrecedenceConstraints.insert(
-          intraPrecedenceConstraints.begin() + taskPosition,
-          make_pair(previousTask, task));
     }
   }
 

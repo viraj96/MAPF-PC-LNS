@@ -49,8 +49,8 @@ int main(int argc, char** argv) {
       static_cast<plog::Severity>(vm["severity"].as<int>()));
 
   /* srand((int)time(0)); */
-  srand(4);
-  // srand(5);
+  // srand(4);
+  srand(5);
 
   Instance instance(vm["map"].as<string>(), vm["agents"].as<string>(),
                     vm["agentNum"].as<int>(), vm["taskNum"].as<int>());

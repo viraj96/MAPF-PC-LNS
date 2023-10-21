@@ -141,6 +141,8 @@ bool LNS::run() {
     return valid;
   }
 
+  set<int> oldConflictedTasks = lnsNeighborhood.conflictedTasks;
+
   // LNS loop
   while (!valid && runtime < timeLimit_ &&
          (int)iterationStats.size() <= numOfIterations_) {
@@ -150,7 +152,16 @@ bool LNS::run() {
     lnsNeighborhood.regretMaxHeap.clear();
     lnsNeighborhood.commitedTasks.clear();
     lnsNeighborhood.conflictedTasksPathSize.clear();
+    
+    // If we rejected the solution in the previous iteration then we need to reset the conflicted tasks!
+    if (numOfFailures > 0) {
+      lnsNeighborhood.conflictedTasks = oldConflictedTasks;  
+    }
+    else {
+      oldConflictedTasks = lnsNeighborhood.conflictedTasks;
+    }
 
+    // This is the case where we accepted the solution at the end of the loop in the previous iteration
     if (numOfFailures == 0) {
       // If we rejected in the previous iteration then we can reuse the previous iteration computations!
       // We can only clear the service time heap map here as at this point we are certain that we wont need it anymore
@@ -159,13 +170,15 @@ bool LNS::run() {
       // Note: Do not clear conflictedTasks here since they get assigned at the end of the loop in the previous iteration
     
       // Solution was not valid as we found some conflicts!
-      PLOGE << "The initial solution was not valid!\n";
+      PLOGE << "The solution was not valid!\n";
       previousSolution_ = solution_;
       // This accounts only for the tasks that were in conflict but not the tasks whose paths would also have been invalidated.
       // TODO: Should we account for the invalidated paths tasks here as well?
       oldSolutionConflictNum = (int)lnsNeighborhood.conflictedTasks.size();
     }
 
+    PLOGD << "Printing neighborhood conflict tasks\n";
+    PLOGD << "Size: " << lnsNeighborhood.conflictedTasks.size() << "\n";
     for (int conflictTask : lnsNeighborhood.conflictedTasks) {
       PLOGD << "Conflicted Task : " << conflictTask << "\n";
     }
@@ -173,16 +186,14 @@ bool LNS::run() {
     prepareNextIteration();
 
     // This needs to happen after prepare iteration since we updated the conflictedTasks variable in the prepare next iteration function
-    if (numOfFailures == 0) {
-      for (int task : lnsNeighborhood.conflictedTasks) {
-        lnsNeighborhood.commitedTasks.insert(make_pair(task, false));
-      }
+    for (int task : lnsNeighborhood.conflictedTasks) {
+      lnsNeighborhood.commitedTasks.insert(make_pair(task, false));
     }
 
     // Compute regret for each of the tasks that are in the conflicting set
     // Pick the best one and repeat the whole process aboe
     while (!lnsNeighborhood.conflictedTasks.empty()) {
-      computeRegret((int)lnsNeighborhood.conflictedTasks.size() != oldSolutionConflictNum);
+      computeRegret((int)lnsNeighborhood.conflictedTasks.size() == oldSolutionConflictNum);
       Regret bestRegret = lnsNeighborhood.regretMaxHeap.top();
       // Use the best regret task and insert it in its correct location
       commitBestRegretTask(bestRegret);
@@ -231,6 +242,11 @@ bool LNS::run() {
         solution_ = previousSolution_;
         numOfFailures++;
         PLOGD << "Rejecting this solution!\n";
+      }
+      else {
+        // Accept this solution
+        numOfFailures = 0;
+        lnsNeighborhood.conflictedTasks = conflictedTasks;
       }
     } else {
       // Accept this solution
@@ -391,6 +407,16 @@ void LNS::computeRegret(bool firstIteration) {
     // If we rejected the last iteration solution, then we are starting again. In the first loop of this iteration we can reuse the computation we did in the first loop of the last iteration. Rest would need to be computed again.
     if (numOfFailures > 0 && firstIteration) {
       // Compute f3 - f1, f4 - f1 etc as needed.
+
+      // debug for now
+      PLOGD << "Conflict Task: " << conflictTask << "\n";
+      auto allservicetimes = lnsNeighborhood.serviceTimesHeapMap[conflictTask];
+      while(!allservicetimes.empty()) {
+        auto util = allservicetimes.top();
+        PLOGD << "Util: Agent = " << util.agent << ", Value = " << util.value << ", Task Position = " << util.taskPosition << "\n";
+        allservicetimes.pop();
+      }
+
       pairing_heap<Utility, compare<Utility::CompareNode>> conflictTaskServiceTimes = lnsNeighborhood.serviceTimesHeapMap[conflictTask];
       Utility bestUtility = conflictTaskServiceTimes.top();
       conflictTaskServiceTimes.pop();
@@ -837,8 +863,9 @@ void LNS::commitBestRegretTask(Regret bestRegret) {
       // This case relates to the tasks in the conflict set that need to be addressed before the best regret task can be committed
       int ancestorTaskAgent = previousSolution_.taskAgentMap[ancestorTask];
       assert(ancestorTaskAgent != UNASSIGNED);
+      PLOGD << "Ancestor task assignment size: " << previousSolution_.agents[ancestorTaskAgent].taskAssignments.size() << "\n";
       int ancestorTaskPosition =
-          previousSolution_.getLocalTaskIndex(ancestorTask, ancestorTask);
+          previousSolution_.getLocalTaskIndex(ancestorTaskAgent, ancestorTask);
       Path ancestorPath = previousSolution_.agents[ancestorTaskAgent]
                               .taskPaths[ancestorTaskPosition];
       solution_.agents[ancestorTaskAgent].pathPlanner->goalLocations.insert(
@@ -854,10 +881,14 @@ void LNS::commitBestRegretTask(Regret bestRegret) {
       solution_.agents[ancestorTaskAgent].insertIntraAgentPrecedenceConstraint(
           ancestorTask, ancestorTaskPosition);
       solution_.agents[ancestorTaskAgent].taskPaths.insert(
-          solution_.agents[ancestorTask].taskPaths.begin() +
+          solution_.agents[ancestorTaskAgent].taskPaths.begin() +
               ancestorTaskPosition,
           ancestorPath);
       solution_.taskAgentMap[ancestorTask] = ancestorTaskAgent;
+      // The ancestor of the task that was in the conflict set has now been committed using its old path, hence we need to mark it as resolved now
+      lnsNeighborhood.conflictedTasks.erase(ancestorTask);
+      lnsNeighborhood.conflictedTasksPathSize.erase(ancestorTask);
+      lnsNeighborhood.commitedTasks[ancestorTask] = true;
 
       // Now if the next task on this agent's task queue was patched during the prepare iteration function phase then we need to remove it from that object and reuse its old path!
       if (ancestorTask !=
@@ -885,6 +916,9 @@ void LNS::commitBestRegretTask(Regret bestRegret) {
              &solution_.agents[bestRegretPacket.agent].taskPaths,
              &solution_.agents[bestRegretPacket.agent].taskAssignments,
              &precedenceConstraints, true);
+  
+  solution_.agents[bestRegretPacket.agent].insertIntraAgentPrecedenceConstraint(
+      bestRegretPacket.task, bestRegretPacket.taskPosition);
   lnsNeighborhood.conflictedTasks.erase(bestRegret.task);
   lnsNeighborhood.conflictedTasksPathSize.erase(bestRegret.task);
   lnsNeighborhood.commitedTasks[bestRegret.task] = true;
