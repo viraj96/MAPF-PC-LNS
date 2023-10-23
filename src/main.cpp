@@ -80,5 +80,5 @@ int main(int argc, char** argv) {
       LNS(vm["maxIterations"].as<int>(), instance, vm["neighborSize"].as<int>(),
           vm["cutoffTime"].as<double>());
   bool success = lnsInstance.run();
-  PLOGI << "Success = " << success << endl;
+  std::cout << "Success = " << success << endl;
 }

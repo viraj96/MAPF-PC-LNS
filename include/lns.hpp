@@ -16,7 +16,26 @@ struct Agent {
 
   Agent(const Agent&) = default;
   Agent(Agent&&) = delete;
-  Agent& operator=(const Agent&) = default;
+  Agent& operator=(const Agent& other) {
+    if (this == &other) {
+      return *this;
+    }
+    this->id = other.id;
+    this->path = other.path;
+    this->taskPaths = other.taskPaths;
+    this->taskAssignments = other.taskAssignments;
+    this->intraPrecedenceConstraints = other.intraPrecedenceConstraints;
+
+    // Copy the path planner details
+    this->pathPlanner->numExpanded = other.pathPlanner->numExpanded;
+    this->pathPlanner->numGenerated = other.pathPlanner->numGenerated;
+
+    this->pathPlanner->heuristic = other.pathPlanner->heuristic;
+    this->pathPlanner->goalLocations = other.pathPlanner->goalLocations;
+    this->pathPlanner->heuristicLandmarks =
+        other.pathPlanner->heuristicLandmarks;
+    return *this;
+  }
   Agent& operator=(Agent&&) = delete;
   Agent(const Instance& instance, int id) : id(id) {
     pathPlanner = new MultiLabelSpaceTimeAStar(instance, id);
@@ -144,7 +163,8 @@ struct Neighbor {
   map<int, bool> commitedTasks;
   map<int, int> conflictedTasksPathSize;
   pairing_heap<Regret, compare<Regret::CompareNode>> regretMaxHeap;
-  map<int, pairing_heap<Utility, compare<Utility::CompareNode>>> serviceTimesHeapMap;
+  map<int, pairing_heap<Utility, compare<Utility::CompareNode>>>
+      serviceTimesHeapMap;
 };
 
 class Solution {
@@ -164,6 +184,20 @@ class Solution {
     for (int i = 0; i < numOfTasks; i++) {
       taskAgentMap.insert(make_pair(i, UNASSIGNED));
     }
+  }
+
+  Solution& operator=(const Solution& other) {
+    if (this == &other) {
+      return *this;
+    }
+    this->numOfTasks = other.numOfTasks;
+    this->numOfAgents = other.numOfAgents;
+    this->sumOfCosts = other.sumOfCosts;
+
+    this->agents = other.agents;
+    this->taskAgentMap = other.taskAgentMap;
+
+    return *this;
   }
 
   int getAgentWithTask(int globalTask) { return taskAgentMap[globalTask]; }
@@ -226,7 +260,7 @@ class LNS {
   high_resolution_clock::time_point plannerStartTime_;
 
  public:
-  double runtime = 0;
+  double runtime = 0, saTemperature = 100, saCoolingCoefficient = 0.955;
   Neighbor lnsNeighborhood;
   vector<Path> initialPaths;
   list<IterationStats> iterationStats;
