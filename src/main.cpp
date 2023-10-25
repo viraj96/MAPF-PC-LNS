@@ -48,9 +48,11 @@ int main(int argc, char** argv) {
   plog::get()->setMaxSeverity(
       static_cast<plog::Severity>(vm["severity"].as<int>()));
 
-  /* srand((int)time(0)); */
+  // Need to store the seed for debugging
+  auto srandSeed = (int)time(nullptr);
+  srand(srandSeed);
   // srand(4);
-  srand(5);
+  // srand(1698249166);
 
   Instance instance(vm["map"].as<string>(), vm["agents"].as<string>(),
                     vm["agentNum"].as<int>(), vm["taskNum"].as<int>());
