@@ -1,10 +1,12 @@
 #include <plog/Log.h>
+#include <plog/Severity.h>
 #include "plog/Appenders/ColorConsoleAppender.h"
 #include "plog/Formatters/TxtFormatter.h"
 #include "plog/Initializers/ConsoleInitializer.h"
 
 #include <boost/program_options.hpp>
 #include "common.hpp"
+#include "costchecker.hpp"
 #include "instance.hpp"
 #include "utils.hpp"
 
@@ -34,6 +36,11 @@ int main(int argc, char** argv) {
                      "Maximum number of iterations");
   desc.add_options()("severity,d", po::value<int>()->default_value(0),
                      "Debugging level");
+  desc.add_options()("initialSolution,s", po::value<string>(),
+                     "Strategy for the initial solution");
+  desc.add_options()("genReport,g", po::value<bool>()->default_value(false),
+                     "Whether to generate the report file that can be fed to "
+                     "CBS-PC for verificattion");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -48,11 +55,18 @@ int main(int argc, char** argv) {
   plog::get()->setMaxSeverity(
       static_cast<plog::Severity>(vm["severity"].as<int>()));
 
+  string initialSolutionStrategy = vm["initialSolution"].as<string>();
+  if (initialSolutionStrategy != "greedy" &&
+      initialSolutionStrategy != "sota") {
+    PLOGE << "Incorrect initial solution strategy provided. Please choose from "
+             "'greedy' or 'sota' options"
+          << endl;
+    return 1;
+  }
+
   // Need to store the seed for debugging
   auto srandSeed = (int)time(nullptr);
   srand(srandSeed);
-  // srand(4);
-  // srand(1698249166);
 
   Instance instance(vm["map"].as<string>(), vm["agents"].as<string>(),
                     vm["agentNum"].as<int>(), vm["taskNum"].as<int>());
@@ -76,11 +90,19 @@ int main(int argc, char** argv) {
       PLOGD << "\t Task : " << task << "\n";
     }
   }
-  /* greedy_task_assignment(&instance); */
 
   LNS lnsInstance =
       LNS(vm["maxIterations"].as<int>(), instance, vm["neighborSize"].as<int>(),
-          vm["cutoffTime"].as<double>());
+          vm["cutoffTime"].as<double>(), initialSolutionStrategy);
   bool success = lnsInstance.run();
+
+  if (vm["genReport"].as<bool>()) {
+    SaveToTxt saveFileForCBSPC;
+    saveFileForCBSPC.printStart();
+    Solution finalSolution = lnsInstance.getSolution();
+    saveFileForCBSPC.runData(&instance, &finalSolution);
+    saveFileForCBSPC.fileSave();
+  }
+
   std::cout << "Success = " << success << endl;
 }

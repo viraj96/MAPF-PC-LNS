@@ -12,7 +12,7 @@ struct Agent {
   vector<Path> taskPaths;
   vector<int> taskAssignments;
   vector<pair<int, int>> intraPrecedenceConstraints;
-  SingleAgentSolver* pathPlanner = nullptr;
+  std::shared_ptr<SingleAgentSolver> pathPlanner = nullptr;
 
   Agent(const Agent&) = default;
   Agent(Agent&&) = delete;
@@ -38,9 +38,8 @@ struct Agent {
   }
   Agent& operator=(Agent&&) = delete;
   Agent(const Instance& instance, int id) : id(id) {
-    pathPlanner = new MultiLabelSpaceTimeAStar(instance, id);
+    pathPlanner = std::make_shared<MultiLabelSpaceTimeAStar>(instance, id);
   }
-  ~Agent() { delete pathPlanner; }
 
   int getLocalTaskIndex(int globalTask) const {
     assert(std::find(taskAssignments.begin(), taskAssignments.end(),
@@ -159,7 +158,7 @@ struct TaskRegretPacket {
 };
 
 struct Neighbor {
-  set<int> conflictedTasks, patchedTasks;
+  set<int> conflictedTasks, patchedTasks, immutableConflictedTasks;
   map<int, bool> commitedTasks;
   map<int, int> conflictedTasksPathSize;
   pairing_heap<Regret, compare<Regret::CompareNode>> regretMaxHeap;
@@ -174,6 +173,10 @@ class Solution {
   map<int, int> taskAgentMap;  // (key, value) - (global task, agent)
   int numOfAgents, numOfTasks;
 
+  Solution(const Solution&) = default;
+  Solution(Solution&&) = delete;
+  Solution& operator=(Solution&&) = delete;
+
   Solution(const Instance& instance) {
     numOfTasks = instance.getTasksNum();
     numOfAgents = instance.getAgentNum();
@@ -186,19 +189,7 @@ class Solution {
     }
   }
 
-  Solution& operator=(const Solution& other) {
-    if (this == &other) {
-      return *this;
-    }
-    this->numOfTasks = other.numOfTasks;
-    this->numOfAgents = other.numOfAgents;
-    this->sumOfCosts = other.sumOfCosts;
-
-    this->agents = other.agents;
-    this->taskAgentMap = other.taskAgentMap;
-
-    return *this;
-  }
+  Solution& operator=(const Solution& other);
 
   int getAgentWithTask(int globalTask) { return taskAgentMap[globalTask]; }
 
@@ -225,6 +216,7 @@ class Solution {
         agents[agent].taskAssignments.begin() + taskPosition, task);
   }
 
+  // Do we need this function?
   void joinPaths(const vector<int>& agentsToCompute) {
     for (int agent : agentsToCompute) {
 
@@ -263,16 +255,18 @@ class LNS {
   double runtime = 0, saTemperature = 100, saCoolingCoefficient = 0.955;
   Neighbor lnsNeighborhood;
   vector<Path> initialPaths;
+  string initialSolutionStrategy;
   list<IterationStats> iterationStats;
   int numOfFailures = 0, sumOfCosts = 0;
 
   LNS(int numOfIterations, const Instance& instance, int neighborSize,
-      double timeLimit);
+      double timeLimit, string initialStrategy);
 
   inline Instance getInstance() { return instance_; }
 
   bool run();
   bool buildGreedySolution();
+  bool buildGreedySolutionWithCBSPC();
   void prepareNextIteration();
   void printPaths() const;
   bool validateSolution(set<int>* conflictedTasks = nullptr);
@@ -293,6 +287,8 @@ class LNS {
                      vector<int>* taskAssignments,
                      vector<pair<int, int>>* precedenceConstraints,
                      bool commit = false);
+
+  Solution getSolution() { return solution_; }
 
   void printAgents() const {
     for (int i = 0; i < instance_.getAgentNum(); i++) {

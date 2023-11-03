@@ -3,10 +3,10 @@ project(mapf_pc_lns)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-add_compile_options(-Wall -Wextra -g)
+add_compile_options(-Wall -Wextra -g -pthread)
 
 find_package(plog)
-find_package(Boost 1.49.0 REQUIRED COMPONENTS program_options system filesystem)
+find_package(Boost 1.71.0 REQUIRED COMPONENTS program_options system filesystem thread)
 
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -15,4 +15,4 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include
 file(GLOB SOURCES "src/*.cpp")
 
 add_executable(mapf_pc_lns ${SOURCES})
-target_link_libraries(mapf_pc_lns ${Boost_LIBRARIES} plog::plog)
+target_link_libraries(mapf_pc_lns ${Boost_LIBRARIES} pthread plog::plog)

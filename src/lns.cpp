@@ -1,5 +1,9 @@
 #include "lns.hpp"
+#include <stdio.h>
+#include <boost/process.hpp>
+#include <boost/process/pipe.hpp>
 #include <numeric>
+#include <utility>
 #include "common.hpp"
 #include "utils.hpp"
 
@@ -16,14 +20,169 @@ bool isSamePath(const Path& p1, const Path& p2) {
 }
 
 LNS::LNS(int numOfIterations, const Instance& instance, int neighborSize,
-         double timeLimit)
+         double timeLimit, string initialStrategy)
     : numOfIterations_(numOfIterations),
       neighborSize_(neighborSize),
       instance_(instance),
       solution_(instance),
       previousSolution_(instance),
-      timeLimit_(timeLimit) {
+      timeLimit_(timeLimit),
+      initialSolutionStrategy(std::move(initialStrategy)) {
   plannerStartTime_ = Time::now();
+}
+
+bool LNS::buildGreedySolutionWithCBSPC() {
+
+  initialPaths.resize(instance_.getTasksNum(), Path());
+  bool readingTaskAssignments = false, readingTaskPaths = false;
+  // The path to the command when you use the vscode launch file
+  string command =
+      "./MAPF-PC/build/bin/task_assignment -m "
+      "./MAPF-PC/sample_input/empty-16-16.map -a "
+      "./MAPF-PC/sample_input/agents_goals.txt -k " +
+      std::to_string(instance_.getAgentNum()) + " -t " +
+      std::to_string(instance_.getTasksNum()) + " --solver CBS";
+
+  // Run a child process to spawn the MAPC-PC codebase with the current map and agent informations
+  namespace bp = boost::process;
+  bp::ipstream inputStream;
+  bp::child child(command, bp::std_out > inputStream);
+
+  // The output sequence of the MAPF-PC codebase is as follows:
+  // 1. Output TASK ASSIGNMENTS
+  // Output Agent # and then followed by the task sequences in order
+  // 2. Output some other internal stuff
+  // 3. Output TASK PATHS
+  // Output Agent # and then followed by the task locations (non-linearized) with @ after the first location with begin time right after and -> between each location
+
+  PLOGD << "Exit code of MAPF-PC " << child.exit_code() << endl;
+  int agent = -1;
+  string line;
+  while (std::getline(inputStream, line) && !line.empty()) {
+
+    // If the agent variable exceeds the total number of agents we are working with then we have read all the task assignments or all the task paths
+    if (agent >= instance_.getAgentNum()) {
+      if (readingTaskAssignments) {
+        readingTaskAssignments = false;
+      } else if (readingTaskPaths) {
+        readingTaskPaths = false;
+      }
+    }
+
+    // Check if the following set of lines will be for task assignments or task paths
+    if (strcmp(line.c_str(), "TASK ASSIGNMENTS") == 0) {
+      readingTaskAssignments = true;
+    } else if (strcmp(line.c_str(), "TASK PATHS") == 0) {
+      agent = -1;
+      readingTaskPaths = true;
+    }
+
+    // Use the Agent # to increment the agent variable
+    if (line.find("Agent") != string::npos) {
+      agent++;
+    }
+    // Otherwise if we are supposed to read the task assignments then we split that line using ',' as the delimiter and extract the tokens one by one
+    // Eg: Agent 1
+    //     1, 2, 3, 4,
+    else if (readingTaskAssignments && agent > -1) {
+      string token;
+      size_t pos = 0;
+      while ((pos = line.find(',')) != string::npos) {
+        token = line.substr(0, pos);
+        solution_.assignTaskToAgent(agent, stoi(token));
+        line.erase(0, pos + 1);
+      }
+      solution_.agents[agent].taskPaths.resize(
+          solution_.agents[agent].taskAssignments.size(), Path());
+    }
+    // If we are not reading the task assignments then we must be reading the task paths.
+    // Eg: Agent 1
+    //     6 @ 0 -> 22 -> 23 @ 2 -> 24 @ 3 -> 25 -> 26 ->
+    else if (readingTaskPaths && agent > -1) {
+      string token;
+      Path taskPath;
+      size_t pos = 0;
+      int taskIndex = -1;
+      while ((pos = line.find("->")) != string::npos) {
+        token = line.substr(0, pos);
+        if (token.find('@') != string::npos) {
+          // This location is the first location for this task as it contains the "@" character after which we will have this task's begin time
+          // Split the token to get the location and the begin time and use that
+
+          // If the taskPath variable is not empty then add that taskPath to the solution object as that pertains to the previous task
+          if (!taskPath.empty()) {
+            solution_.agents[agent].taskPaths[taskIndex] = taskPath;
+            initialPaths[solution_.agents[agent].taskAssignments[taskIndex]] =
+                taskPath;
+            taskPath = Path();
+          }
+          taskIndex++;
+          size_t localPos = 0;
+          string localToken;
+          localPos = token.find('@');
+          PathEntry pEntry = {false, stoi(token.substr(0, localPos))};
+
+          // If there was a previous task path then the start location of this task would be what was the last location of that previous task
+          if (taskIndex > 0) {
+            PathEntry previousPEntry = {false, solution_.agents[agent].taskPaths[taskIndex - 1].back().location};
+            taskPath.path.push_back(previousPEntry);
+          }
+
+          taskPath.path.push_back(pEntry);
+          token.erase(0, localPos + 1);
+          if (taskIndex > 0) {
+            // Leftover token should now be the begin time information
+            taskPath.beginTime = stoi(token) - 1;
+          }
+          else {
+            taskPath.beginTime = 0;
+          }
+          // If there was a previus task then mark the last location of that task as goal
+          if (taskIndex > 0) {
+            solution_.agents[agent]
+                .taskPaths[taskIndex - 1]
+                .path[solution_.agents[agent]
+                          .taskPaths[taskIndex - 1]
+                          .path.size() -
+                      1]
+                .isGoal = true;
+          }
+        } else {
+          PathEntry pEntry = {false, stoi(token)};
+          taskPath.path.push_back(pEntry);
+        }
+        line.erase(0, pos + 2);
+      }
+      // Add the last task path
+      if (!taskPath.empty()) {
+        solution_.agents[agent].taskPaths[taskIndex] = taskPath;
+        initialPaths[solution_.agents[agent].taskAssignments[taskIndex]] =
+            taskPath;
+        taskPath = Path();
+      }
+    }
+  }
+
+  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+    vector<int> taskLocations =
+        instance_.getTaskLocations(solution_.getAgentGlobalTasks(agent));
+    solution_.agents[agent].pathPlanner->setGoalLocations(taskLocations);
+    solution_.agents[agent].pathPlanner->setGoalLocations(taskLocations);
+    solution_.agents[agent].pathPlanner->computeHeuristics();
+  }
+
+  // Join the individual task paths to form the agent's path
+  vector<int> agentsToCompute(instance_.getAgentNum());
+  std::iota(agentsToCompute.begin(), agentsToCompute.end(), 0);
+  solution_.joinPaths(agentsToCompute);
+
+  // Gather the information
+  int initialSumOfCosts = 0;
+  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+    initialSumOfCosts += solution_.agents[agent].path.endTime();
+  }
+  solution_.sumOfCosts = initialSumOfCosts;
+  return true;
 }
 
 bool LNS::buildGreedySolution() {
@@ -113,7 +272,15 @@ bool LNS::buildGreedySolution() {
 
 bool LNS::run() {
 
-  bool success = buildGreedySolution();
+  bool success = false;
+  if (initialSolutionStrategy == "greedy") {
+    // Run the greedy task assignment and subsequent path finding algorithm
+    success = buildGreedySolution();
+  } else if (initialSolutionStrategy == "sota") {
+    // Run the greedy task assignment and use CBS-PC for finding the paths of agents
+    success = buildGreedySolutionWithCBSPC();
+  }
+
   if (!success) {
     return success;
   }
@@ -187,6 +354,7 @@ bool LNS::run() {
     for (int task : lnsNeighborhood.conflictedTasks) {
       lnsNeighborhood.commitedTasks.insert(make_pair(task, false));
     }
+    lnsNeighborhood.immutableConflictedTasks = lnsNeighborhood.conflictedTasks;
 
     // Compute regret for each of the tasks that are in the conflicting set
     // Pick the best one and repeat the whole process aboe
@@ -246,7 +414,7 @@ bool LNS::run() {
         double acceptanceProb =
             exp((previousSolution_.sumOfCosts - solution_.sumOfCosts) /
                 saTemperature);
-        if ((double)rand() / (RAND_MAX) < acceptanceProb) {
+        if ((double)rand() / (RAND_MAX) > acceptanceProb) {
           // Use simulated annealing to potentially accept worse solutions!
           numOfFailures = 0;
           lnsNeighborhood.conflictedTasks = conflictedTasks;
@@ -290,12 +458,13 @@ void LNS::prepareNextIteration() {
   // Find the tasks that are following the earliest conflicting task as their paths need to be invalidated
   for (pair<int, int> precConstraint :
        instance_.getInputPrecedenceConstraints()) {
-    if (lnsNeighborhood.conflictedTasks.find(precConstraint.first) !=
-        lnsNeighborhood.conflictedTasks.end()) {
-      successors[precConstraint.first].push_back(precConstraint.second);
-    }
+    // if (lnsNeighborhood.conflictedTasks.find(precConstraint.first) !=
+    //     lnsNeighborhood.conflictedTasks.end()) {
+    successors[precConstraint.first].push_back(precConstraint.second);
+    // }
   }
 
+  // TODO: Successor computation here is wrong!
   stack<int> q;
   for (int conflictTask : lnsNeighborhood.conflictedTasks) {
     q.push(conflictTask);
@@ -330,13 +499,15 @@ void LNS::prepareNextIteration() {
           << endl;
 
     // If the invalidated task was not the last local task of this agent then t_id + 1 exists
-    if (taskPosition != (int)solution_.getAgentGlobalTasks(agent).size() - 1) {
+    if (taskPosition < (int)solution_.getAgentGlobalTasks(agent).size() - 1) {
       int nextTask = solution_.getAgentGlobalTasks(agent, taskPosition + 1);
+      // Next task can still be undefined in the case where that task was removed in the previous iteration of this loop
       if (lnsNeighborhood.conflictedTasks.find(nextTask) ==
-          lnsNeighborhood.conflictedTasks.end()) {
+              lnsNeighborhood.conflictedTasks.end() &&
+          nextTask != -1) {
         tasksToFix.insert(nextTask);
+        PLOGD << "Next task: " << nextTask << endl;
       }
-      PLOGD << "Next task: " << nextTask << endl;
     }
 
     affectedAgents.insert(agent);
@@ -477,8 +648,8 @@ void LNS::computeRegretForTask(int task, bool firstIteration) {
             if (localTask == inputPlanningOrder[i]) {
               break;
             }
-            if (lnsNeighborhood.conflictedTasks.find(localTask) !=
-                    lnsNeighborhood.conflictedTasks.end() &&
+            if (lnsNeighborhood.immutableConflictedTasks.find(localTask) !=
+                    lnsNeighborhood.immutableConflictedTasks.end() &&
                 localTask != inputPlanningOrder[i]) {
               localTaskPositionOffset++;
             }
@@ -511,8 +682,8 @@ void LNS::computeRegretForTask(int task, bool firstIteration) {
           if (localTask == temporaryTask) {
             break;
           }
-          if (lnsNeighborhood.conflictedTasks.find(localTask) !=
-                  lnsNeighborhood.conflictedTasks.end() &&
+          if (lnsNeighborhood.immutableConflictedTasks.find(localTask) !=
+                  lnsNeighborhood.immutableConflictedTasks.end() &&
               localTask != temporaryTask) {
             temporaryTaskLocalIndexOffset++;
           }
@@ -546,8 +717,8 @@ void LNS::computeRegretForTask(int task, bool firstIteration) {
           if (localTask == temporaryTask) {
             break;
           }
-          if (lnsNeighborhood.conflictedTasks.find(localTask) !=
-                  lnsNeighborhood.conflictedTasks.end() &&
+          if (lnsNeighborhood.immutableConflictedTasks.find(localTask) !=
+                  lnsNeighborhood.immutableConflictedTasks.end() &&
               localTask != temporaryTask) {
             temporaryTaskLocalIndexOffset++;
           }
@@ -592,8 +763,8 @@ void LNS::computeRegretForTask(int task, bool firstIteration) {
             if (localTask == ancestorTask) {
               break;
             }
-            if (lnsNeighborhood.conflictedTasks.find(localTask) !=
-                    lnsNeighborhood.conflictedTasks.end() &&
+            if (lnsNeighborhood.immutableConflictedTasks.find(localTask) !=
+                    lnsNeighborhood.immutableConflictedTasks.end() &&
                 localTask != ancestorTask) {
               temporaryTaskLocalIndexOffset++;
             }
@@ -622,8 +793,8 @@ void LNS::computeRegretForTask(int task, bool firstIteration) {
               if (localTask == ancestorTask) {
                 break;
               }
-              if (lnsNeighborhood.conflictedTasks.find(localTask) !=
-                      lnsNeighborhood.conflictedTasks.end() &&
+              if (lnsNeighborhood.immutableConflictedTasks.find(localTask) !=
+                      lnsNeighborhood.immutableConflictedTasks.end() &&
                   localTask != ancestorTask) {
                 temporaryTaskLocalIndexOffset++;
               }
@@ -649,12 +820,42 @@ void LNS::computeRegretForTask(int task, bool firstIteration) {
       }
     }
 
-    vector<int> taskAncestors = instance_.getTaskDependencies()[task];
-    for (int ancestor : taskAncestors) {
+    vector<vector<int>> ancestors;
+    ancestors.resize(instance_.getTasksNum());
+    for (pair<int, int> precedenceConstraint :
+         instance_.getInputPrecedenceConstraints()) {
+      ancestors[precedenceConstraint.second].push_back(
+          precedenceConstraint.first);
+    }
+
+    set<int> setOfTasksToComplete;
+    stack<int> q({task});
+    while (!q.empty()) {
+      int current = q.top();
+      q.pop();
+      if (setOfTasksToComplete.find(current) != setOfTasksToComplete.end()) {
+        continue;
+      }
+      setOfTasksToComplete.insert(current);
+      for (int agentTaskAncestor : ancestors[current]) {
+        if (setOfTasksToComplete.find(agentTaskAncestor) ==
+            setOfTasksToComplete.end()) {
+          q.push(agentTaskAncestor);
+        }
+      }
+    }
+    setOfTasksToComplete.erase(task);
+    for (int ancestor : setOfTasksToComplete) {
       assert(!temporaryTaskPaths[ancestor].empty());
       earliestTimestep =
           max(earliestTimestep, temporaryTaskPaths[ancestor].endTime());
     }
+    // vector<int> taskAncestors = instance_.getTaskDependencies()[task];
+    // for (int ancestor : taskAncestors) {
+    //   assert(!temporaryTaskPaths[ancestor].empty());
+    //   earliestTimestep =
+    //       max(earliestTimestep, temporaryTaskPaths[ancestor].endTime());
+    // }
 
     // v2: Append the agent's internal precedence constraints to the input precedence constraints
     vector<pair<int, int>> precedenceConstraints =
@@ -851,8 +1052,8 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
               if (localTask == nextTaskAncestor) {
                 break;
               }
-              if (lnsNeighborhood.conflictedTasks.find(localTask) !=
-                      lnsNeighborhood.conflictedTasks.end() &&
+              if (lnsNeighborhood.immutableConflictedTasks.find(localTask) !=
+                      lnsNeighborhood.immutableConflictedTasks.end() &&
                   localTask != nextTaskAncestor) {
                 nextTaskLocalIndexOffset++;
               }
@@ -882,8 +1083,8 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
                 if (localTask == nextTaskAncestor) {
                   break;
                 }
-                if (lnsNeighborhood.conflictedTasks.find(localTask) !=
-                        lnsNeighborhood.conflictedTasks.end() &&
+                if (lnsNeighborhood.immutableConflictedTasks.find(localTask) !=
+                        lnsNeighborhood.immutableConflictedTasks.end() &&
                     localTask != nextTaskAncestor) {
                   nextTaskLocalIndexOffset++;
                 }
@@ -949,8 +1150,8 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
             if (localTask == ancestorNextTask) {
               break;
             }
-            if (lnsNeighborhood.conflictedTasks.find(localTask) !=
-                    lnsNeighborhood.conflictedTasks.end() &&
+            if (lnsNeighborhood.immutableConflictedTasks.find(localTask) !=
+                    lnsNeighborhood.immutableConflictedTasks.end() &&
                 localTask != ancestorNextTask) {
               ancestorNextTaskPositionOffset++;
             }
@@ -1003,8 +1204,8 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
               if (localTask == localNextTask) {
                 break;
               }
-              if (lnsNeighborhood.conflictedTasks.find(localTask) !=
-                      lnsNeighborhood.conflictedTasks.end() &&
+              if (lnsNeighborhood.immutableConflictedTasks.find(localTask) !=
+                      lnsNeighborhood.immutableConflictedTasks.end() &&
                   localTask != localNextTask) {
                 localNextTaskOldPositionOffset++;
               }
@@ -1034,9 +1235,14 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
       }
 
       buildConstraintTable(constraintTable, nextTask);
-      taskPathsRef[regretPacket.taskPosition + 1] =
+      int nextTaskPosition =
+          find(taskAssignmentsRef.begin(), taskAssignmentsRef.end(), nextTask) -
+          taskAssignmentsRef.begin();
+      assert(nextTaskPosition - 1 >= 0);
+      startTime = taskPathsRef[nextTaskPosition - 1].endTime();
+      taskPathsRef[nextTaskPosition] =
           solution_.agents[regretPacket.agent].pathPlanner->findPathSegment(
-              constraintTable, startTime, regretPacket.taskPosition + 1, 0);
+              constraintTable, startTime, nextTaskPosition, 0);
     }
 
     for (int k = regretPacket.taskPosition + 1;
@@ -1083,8 +1289,8 @@ void LNS::commitBestRegretTask(Regret bestRegret) {
         if (localTask == ancestorTask) {
           break;
         }
-        if (lnsNeighborhood.conflictedTasks.find(localTask) !=
-                lnsNeighborhood.conflictedTasks.end() &&
+        if (lnsNeighborhood.immutableConflictedTasks.find(localTask) !=
+                lnsNeighborhood.immutableConflictedTasks.end() &&
             localTask != ancestorTask) {
           ancestorTaskPositionOffset++;
         }
@@ -1132,8 +1338,8 @@ void LNS::commitBestRegretTask(Regret bestRegret) {
           if (localTask == localNextTask) {
             break;
           }
-          if (lnsNeighborhood.conflictedTasks.find(localTask) !=
-                  lnsNeighborhood.conflictedTasks.end() &&
+          if (lnsNeighborhood.immutableConflictedTasks.find(localTask) !=
+                  lnsNeighborhood.immutableConflictedTasks.end() &&
               localTask != localNextTask) {
             localNextTaskOldPositionOffset++;
           }
@@ -1169,6 +1375,7 @@ void LNS::commitBestRegretTask(Regret bestRegret) {
   }
 
   // At this point any previously empty paths must be resolved and not we can use the insert task function to commit to the actual best regret task
+  // TODO: Can it happen that some ancestor gets inserted before this task on the same agent's task queue?
   insertTask(bestRegretPacket,
              &solution_.agents[bestRegretPacket.agent].taskPaths,
              &solution_.agents[bestRegretPacket.agent].taskAssignments,
@@ -1558,4 +1765,18 @@ void LNS::printPaths() const {
     }
     cout << endl;
   }
+}
+
+Solution& Solution::operator=(const Solution& other) {
+  if (this == &other) {
+    return *this;
+  }
+  this->numOfTasks = other.numOfTasks;
+  this->numOfAgents = other.numOfAgents;
+  this->sumOfCosts = other.sumOfCosts;
+
+  this->agents = other.agents;
+  this->taskAgentMap = other.taskAgentMap;
+
+  return *this;
 }
