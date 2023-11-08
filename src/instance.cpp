@@ -19,6 +19,7 @@ Instance::Instance(const string& mapFname, const string& agentTaskFname,
     PLOGE << "Agent and task file " << agentTaskFname << " not found.\n";
     exit(-1);
   }
+  preComputeHeuristics();
 }
 
 bool Instance::loadMap() {

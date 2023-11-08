@@ -10,6 +10,7 @@ class Instance {
   string mapFname_;
   string agentTaskFname_;
 
+  vector<vector<int>> heuristics_;
   int numOfAgents_{}, numOfTasks_{};
   vector<int> taskLocations_, startLocations_, inputPlanningOrder_;
   // Maps given task to all its predecessors as given in the input
@@ -41,6 +42,11 @@ class Instance {
     }
     return taskLocs;
   }
+  vector<vector<int>> getHeuristics() { return heuristics_; }
+  vector<int> getHeuristics(int globalTask) {
+    assert(globalTask < numOfTasks_);
+    return heuristics_[globalTask];
+  }
   list<int> getNeighbors(int current) const;
   inline bool isObstacle(int loc) const { return map_[loc]; }
   inline bool validMove(int curr, int next) const {
@@ -49,7 +55,6 @@ class Instance {
     }
     return getManhattanDistance(curr, next) < 2;
   };
-
   inline int linearizeCoordinate(int row, int col) const {
     return (this->numOfCols * row + col);
   }
@@ -86,4 +91,45 @@ class Instance {
   }
   int getDefaultNumberOfTasks() const { return numOfTasks_; }
   int getDefaultNumberOfAgents() const { return numOfAgents_; }
+  string getAgentTaskFName() const { return agentTaskFname_; }
+  string getMapName() const { return mapFname_; }
+
+  void preComputeHeuristics() {
+    struct Node {
+      int location, value;
+      Node(int location, int value) : location(location), value(value) {}
+
+      struct CompareNode {
+        bool operator()(const Node& lhs, const Node& rhs) const {
+          return lhs.value >= rhs.value;
+        }
+      };
+    };
+
+    heuristics_.clear();
+    heuristics_.resize(numOfTasks_);
+
+    for (int i = 0; i < numOfTasks_; i++) {
+      heuristics_[i].resize(mapSize, MAX_TIMESTEP);
+      pairing_heap<Node, compare<Node::CompareNode>> heap;
+
+      // h-val of the goal is always 0
+      Node root(taskLocations_[i], 0);
+      heuristics_[i][taskLocations_[i]] = 0;
+
+      heap.push(root);
+
+      while (!heap.empty()) {
+        Node current = heap.top();
+        heap.pop();
+        for (int nextLocation : getNeighbors(current.location)) {
+          if (heuristics_[i][nextLocation] > current.value + 1) {
+            heuristics_[i][nextLocation] = current.value + 1;
+            Node next(nextLocation, heuristics_[i][nextLocation]);
+            heap.push(next);
+          }
+        }
+      }
+    }
+  }
 };

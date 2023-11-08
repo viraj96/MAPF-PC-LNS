@@ -40,6 +40,7 @@ struct Agent {
   Agent(const Instance& instance, int id) : id(id) {
     pathPlanner = std::make_shared<MultiLabelSpaceTimeAStar>(instance, id);
   }
+  ~Agent() = default;
 
   int getLocalTaskIndex(int globalTask) const {
     assert(std::find(taskAssignments.begin(), taskAssignments.end(),
@@ -176,6 +177,7 @@ class Solution {
   Solution(const Solution&) = default;
   Solution(Solution&&) = delete;
   Solution& operator=(Solution&&) = delete;
+  ~Solution() = default;
 
   Solution(const Instance& instance) {
     numOfTasks = instance.getTasksNum();
@@ -265,28 +267,41 @@ class LNS {
   inline Instance getInstance() { return instance_; }
 
   bool run();
+  
   bool buildGreedySolution();
   bool buildGreedySolutionWithCBSPC();
+  
   void prepareNextIteration();
+  void markResolved(int globalTask);
+  // Patches the task paths of an agent such that the begin times and end times match up
+  void patchAgentTaskPaths(int agent, int taskPosition);
+
   void printPaths() const;
   bool validateSolution(set<int>* conflictedTasks = nullptr);
+  
   void buildConstraintTable(ConstraintTable& constraintTable, int task);
 
   void buildConstraintTable(ConstraintTable& constraintTable, int task,
                             int taskLocation, vector<Path>* taskPaths,
                             vector<pair<int, int>>* precedenceConstraints);
+  
+  int extractOldLocalTaskIndex(int task, vector<int> taskQueue);
+  set<int> reachableSet(int source, vector<vector<int>> edgeList);
 
   void computeRegret(bool firstIteration);
   void computeRegretForTask(int task, bool firstIteration);
-  void commitBestRegretTask(Regret bestRegret);
   void computeRegretForTaskWithAgent(
       TaskRegretPacket regretPacket, vector<int>* taskAssignments,
       vector<Path>* taskPaths, vector<pair<int, int>>* precedenceConstraints,
       pairing_heap<Utility, compare<Utility::CompareNode>>* serviceTimes);
+  
+  void commitBestRegretTask(Regret bestRegret);
+  void commitAncestorTaskOf(int globalTask, std::optional<pair<bool, int>> committingNextTask);
+  
   Utility insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
                      vector<int>* taskAssignments,
-                     vector<pair<int, int>>* precedenceConstraints,
-                     bool commit = false);
+                     vector<pair<int, int>>* precedenceConstraints);
+  void insertBestRegretTask(TaskRegretPacket bestRegretPacket);  
 
   Solution getSolution() { return solution_; }
 

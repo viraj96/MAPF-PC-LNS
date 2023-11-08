@@ -135,6 +135,14 @@ class SingleAgentSolver {
   inline void setGoalLocations(vector<int> goals) {
     goalLocations = std::move(goals);
   }
+  
+  int getGlobalTaskFromLocation(int taskLocation) const {
+    vector<int> taskLocations = instance.getTaskLocations();
+    auto it = std::find(taskLocations.begin(),
+                        taskLocations.end(), taskLocation);
+    assert(it != taskLocations.end());
+    return it - taskLocations.begin();
+  }
 
   virtual string getName() const = 0;
   virtual Path findPathSegment(ConstraintTable& constraintTable, int startTime,
