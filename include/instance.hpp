@@ -14,7 +14,8 @@ class Instance {
   int numOfAgents_{}, numOfTasks_{};
   vector<int> taskLocations_, startLocations_, inputPlanningOrder_;
   // Maps given task to all its predecessors as given in the input
-  unordered_map<int, vector<int>> taskDependencies_;
+  map<int, vector<int>> taskDependencies_;
+  vector<vector<int>> ancestors_, successors_;
   vector<pair<int, int>> inputPrecedenceConstraints_;
 
   bool loadMap();
@@ -68,11 +69,21 @@ class Instance {
   inline int getTasksNum() const { return numOfTasks_; }
   inline vector<int> getTaskLocations() const { return taskLocations_; }
   inline vector<int> getStartLocations() const { return startLocations_; }
-  inline unordered_map<int, vector<int>> getTaskDependencies() const {
+  inline map<int, vector<int>> getTaskDependencies() const {
     return taskDependencies_;
   }
   inline vector<pair<int, int>> getInputPrecedenceConstraints() const {
     return inputPrecedenceConstraints_;
+  }
+  inline vector<vector<int>> getAncestors() const { return ancestors_; }
+  inline vector<int> getAncestors(int globalTask) const {
+    assert(globalTask < numOfTasks_);
+    return ancestors_[globalTask];
+  }
+  inline vector<vector<int>> getSuccessors() const { return successors_; }
+  inline vector<int> getSuccessors(int globalTask) const {
+    assert(globalTask < numOfTasks_);
+    return successors_[globalTask];
   }
   inline vector<int> getInputPlanningOrder() const {
     return inputPlanningOrder_;

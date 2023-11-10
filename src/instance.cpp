@@ -14,6 +14,8 @@ Instance::Instance(const string& mapFname, const string& agentTaskFname,
     exit(-1);
   }
 
+  ancestors_.resize(numOfTasks_);
+  successors_.resize(numOfTasks_);
   succ = loadAgentsAndTasks();
   if (!succ) {
     PLOGE << "Agent and task file " << agentTaskFname << " not found.\n";
@@ -149,6 +151,8 @@ bool Instance::loadAgentsAndTasks() {
     int i, j;
     tie(i, j) = dependency;
     taskDependencies_[j].push_back(i);
+    ancestors_[j].push_back(i);
+    successors_[i].push_back(j);
     inputPrecedenceConstraints_.emplace_back(i, j);
   }
 

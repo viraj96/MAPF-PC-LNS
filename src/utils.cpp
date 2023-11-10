@@ -37,8 +37,7 @@ void greedyTaskAssignment(const Instance* instance, Solution* solution) {
                          searchEngine->heuristic[task][lastLocationOfAgent];
 
       // Check for temporal dependencies
-      unordered_map<int, vector<int>> taskDependencies =
-          instance->getTaskDependencies();
+      map<int, vector<int>> taskDependencies = instance->getTaskDependencies();
       if (taskDependencies.find(task) != taskDependencies.end()) {
         for (int dependentTask : taskDependencies[task]) {
           if (taskCompleteTimesteps[dependentTask] < 0) {

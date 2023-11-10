@@ -159,12 +159,45 @@ struct TaskRegretPacket {
 };
 
 struct Neighbor {
+  int additionalTasksAdded;
   set<int> conflictedTasks, patchedTasks, immutableConflictedTasks;
   map<int, bool> commitedTasks;
   map<int, int> conflictedTasksPathSize;
   pairing_heap<Regret, compare<Regret::CompareNode>> regretMaxHeap;
   map<int, pairing_heap<Utility, compare<Utility::CompareNode>>>
       serviceTimesHeapMap;
+};
+
+struct FeasibleSolution {
+  public:
+  int sumOfCosts{}, numOfCols{};
+  vector<Path> agentPaths;
+
+  inline int getRowCoordinate(int id) const { return id / numOfCols; }
+  inline int getColCoordinate(int id) const { return id % numOfCols; }
+  inline pair<int, int> getCoordinate(int id) const {
+    return make_pair(getRowCoordinate(id), getColCoordinate(id));
+  }
+
+  string toString() {
+    string result = "Feasible Solution\n\t Sum Of Costs = " + std::to_string(sumOfCosts) + "\n\t";
+    for (int agent = 0; agent < (int)agentPaths.size(); agent++) {
+      result += "Agent " + std::to_string(agent) + " (cost = " + std::to_string(agentPaths[agent].endTime()) + "): \n\tPaths:\n\t";
+      for (int t = 0; t < (int)agentPaths[agent].path.size(); t++) {
+        pair<int, int> coord = getCoordinate(agentPaths[agent].path.at(t).location);
+        result += "(" + std::to_string(coord.first) + ", " + std::to_string(coord.second) + ")@" + std::to_string(t);
+        if (agentPaths[agent].path.at(t).isGoal) {
+          result += "*";
+        }
+        if (agent != (int)agentPaths[agent].path.size() - 1) {
+          result += " -> ";
+        }
+      }
+      result += "\n";
+    }
+    return result;
+  }
+
 };
 
 class Solution {
@@ -227,6 +260,7 @@ class Solution {
       assert(getAgentGlobalTasks(agent).size() ==
              agents[agent].taskPaths.size());
 
+      agents[agent].path = Path();
       for (int i = 0; i < (int)getAgentGlobalTasks(agent).size(); i++) {
         if (i == 0) {
           agents[agent].path.path.push_back(agents[agent].taskPaths[i].front());
@@ -249,6 +283,7 @@ class LNS {
  protected:
   int neighborSize_;
   const Instance& instance_;
+  FeasibleSolution incumbentSolution_;
   Solution solution_, previousSolution_;
   double timeLimit_, initialSolutionRuntime_ = 0;
   high_resolution_clock::time_point plannerStartTime_;
@@ -267,10 +302,10 @@ class LNS {
   inline Instance getInstance() { return instance_; }
 
   bool run();
-  
+
   bool buildGreedySolution();
   bool buildGreedySolutionWithCBSPC();
-  
+
   void prepareNextIteration();
   void markResolved(int globalTask);
   // Patches the task paths of an agent such that the begin times and end times match up
@@ -278,13 +313,13 @@ class LNS {
 
   void printPaths() const;
   bool validateSolution(set<int>* conflictedTasks = nullptr);
-  
+
   void buildConstraintTable(ConstraintTable& constraintTable, int task);
 
   void buildConstraintTable(ConstraintTable& constraintTable, int task,
                             int taskLocation, vector<Path>* taskPaths,
                             vector<pair<int, int>>* precedenceConstraints);
-  
+
   int extractOldLocalTaskIndex(int task, vector<int> taskQueue);
   set<int> reachableSet(int source, vector<vector<int>> edgeList);
 
@@ -294,16 +329,20 @@ class LNS {
       TaskRegretPacket regretPacket, vector<int>* taskAssignments,
       vector<Path>* taskPaths, vector<pair<int, int>>* precedenceConstraints,
       pairing_heap<Utility, compare<Utility::CompareNode>>* serviceTimes);
-  
+
   void commitBestRegretTask(Regret bestRegret);
-  void commitAncestorTaskOf(int globalTask, std::optional<pair<bool, int>> committingNextTask);
-  
+  void commitAncestorTaskOf(int globalTask,
+                            std::optional<pair<bool, int>> committingNextTask);
+
   Utility insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
                      vector<int>* taskAssignments,
                      vector<pair<int, int>>* precedenceConstraints);
-  void insertBestRegretTask(TaskRegretPacket bestRegretPacket);  
+  void insertBestRegretTask(TaskRegretPacket bestRegretPacket);
 
   Solution getSolution() { return solution_; }
+  
+  void extractFeasibleSolution();
+  FeasibleSolution getFeasibleSolution() { return incumbentSolution_; }
 
   void printAgents() const {
     for (int i = 0; i < instance_.getAgentNum(); i++) {

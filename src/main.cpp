@@ -66,6 +66,7 @@ int main(int argc, char** argv) {
 
   // Need to store the seed for debugging
   auto srandSeed = (int)time(nullptr);
+  // srandSeed = 1699554871;
   srand(srandSeed);
 
   Instance instance(vm["map"].as<string>(), vm["agents"].as<string>(),
@@ -95,6 +96,8 @@ int main(int argc, char** argv) {
       LNS(vm["maxIterations"].as<int>(), instance, vm["neighborSize"].as<int>(),
           vm["cutoffTime"].as<double>(), initialSolutionStrategy);
   bool success = lnsInstance.run();
+
+  std::cout << lnsInstance.getFeasibleSolution().toString() << std::endl;
 
   if (vm["genReport"].as<bool>()) {
     SaveToTxt saveFileForCBSPC;
