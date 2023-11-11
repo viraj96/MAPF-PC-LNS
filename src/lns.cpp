@@ -44,16 +44,29 @@ LNS::LNS(int numOfIterations, const Instance& instance, int neighborSize,
   plannerStartTime_ = Time::now();
 }
 
-bool LNS::buildGreedySolutionWithCBSPC() {
+bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
 
   initialPaths.resize(instance_.getTasksNum(), Path());
   bool readingTaskAssignments = false, readingTaskPaths = false;
+
+  string solver;
+  if (variant == "sota_cbs") {
+    solver = "CBS";
+  }
+  else if (variant == "sota_pbs") {
+    solver = "PBS";
+  }
+  else {
+    PLOGE << "Initial solution solver using MAPF-PC variant not supported\n";
+    return false;
+  }
+
   // The path to the command when you use the vscode launch file
   string command = "./MAPF-PC/build/bin/task_assignment -m " +
                    instance_.getMapName() + " -a " +
                    instance_.getAgentTaskFName() + " -k " +
                    std::to_string(instance_.getAgentNum()) + " -t " +
-                   std::to_string(instance_.getTasksNum()) + " --solver CBS";
+                   std::to_string(instance_.getTasksNum()) + " --solver " + solver;
 
   // Run a child process to spawn the MAPC-PC codebase with the current map and agent informations
   namespace bp = boost::process;
@@ -308,9 +321,9 @@ bool LNS::run() {
   if (initialSolutionStrategy == "greedy") {
     // Run the greedy task assignment and subsequent path finding algorithm
     success = buildGreedySolution();
-  } else if (initialSolutionStrategy == "sota") {
+  } else if (initialSolutionStrategy.find("sota") != string::npos) {
     // Run the greedy task assignment and use CBS-PC for finding the paths of agents
-    success = buildGreedySolutionWithCBSPC();
+    success = buildGreedySolutionWithMAPFPC(initialSolutionStrategy);
   }
 
   // If the initial solution strategy failed then we cannot do anything!

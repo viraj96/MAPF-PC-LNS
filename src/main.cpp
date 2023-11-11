@@ -58,9 +58,9 @@ int main(int argc, char** argv) {
 
   string initialSolutionStrategy = vm["initialSolution"].as<string>();
   if (initialSolutionStrategy != "greedy" &&
-      initialSolutionStrategy != "sota") {
+      initialSolutionStrategy.find("sota") == string::npos) {
     PLOGE << "Incorrect initial solution strategy provided. Please choose from "
-             "'greedy' or 'sota' options"
+             "'greedy', 'sota_cbs' or 'sota_pbs' options"
           << endl;
     return 1;
   }

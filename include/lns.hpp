@@ -304,7 +304,7 @@ class LNS {
   bool run();
 
   bool buildGreedySolution();
-  bool buildGreedySolutionWithCBSPC();
+  bool buildGreedySolutionWithMAPFPC(const string& variant);
 
   void prepareNextIteration();
   void markResolved(int globalTask);
