@@ -90,13 +90,15 @@ bool isSamePath(const Path& p1, const Path& p2);
 struct IterationStats {
   double runtime;
   string algorithm;
+  bool feasibleSolutionFound;
   int numOfAgents, numOfTasks, sumOfCosts, sumOfCostsLowerBound,
       numOfConflictingPairs;
   IterationStats(double runtime, string algorithm, int numOfAgents,
-                 int numOfTasks, int sumOfCosts, int sumOfCostsLowerBound = 0,
+                 int numOfTasks, int sumOfCosts,  bool feasibleSolutionFound, int sumOfCostsLowerBound = 0,
                  int numOfConflictingPairs = 0)
       : runtime(runtime),
         algorithm(std::move(algorithm)),
+        feasibleSolutionFound(feasibleSolutionFound),
         numOfAgents(numOfAgents),
         numOfTasks(numOfTasks),
         sumOfCosts(sumOfCosts),

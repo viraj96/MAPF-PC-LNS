@@ -334,9 +334,6 @@ bool LNS::run() {
   printPaths();
 
   initialSolutionRuntime_ = ((fsec)(Time::now() - plannerStartTime_)).count();
-  iterationStats.emplace_back(initialSolutionRuntime_, "greedy",
-                              instance_.getAgentNum(), instance_.getTasksNum(),
-                              solution_.sumOfCosts);
   runtime = initialSolutionRuntime_;
 
   PLOGD << "Initial solution cost = " << solution_.sumOfCosts
@@ -347,15 +344,19 @@ bool LNS::run() {
   lnsNeighborhood.conflictedTasks =
       extractNConflicts(neighborSize_, conflictedTasks);
 
+  bool feasibleSolutionUpdated = false;
   if (valid) {
+    feasibleSolutionUpdated = true;
     extractFeasibleSolution();
   }
 
+  iterationStats.emplace_back(initialSolutionRuntime_, "greedy",
+                              instance_.getAgentNum(), instance_.getTasksNum(),
+                              solution_.sumOfCosts, feasibleSolutionUpdated);
   set<int> oldConflictedTasks = lnsNeighborhood.conflictedTasks;
 
   // LNS loop
-  while (runtime < timeLimit_ &&
-         (int)iterationStats.size() <= numOfIterations_) {
+  while (runtime < timeLimit_) {
 
     int oldSolutionConflictNum;
     lnsNeighborhood.patchedTasks.clear();
@@ -443,10 +444,12 @@ bool LNS::run() {
 
     if (!valid) {
       // Solution was not valid as we found some conflicts!
+      feasibleSolutionUpdated = false;
       PLOGE << "The solution was not valid!\n";
     }
     else {
       extractFeasibleSolution();
+      feasibleSolutionUpdated = true;
     }
 
     if (oldSolutionConflictNum < (int)conflictedTasks.size()) {
@@ -486,7 +489,7 @@ bool LNS::run() {
 
     runtime = ((fsec)(Time::now() - plannerStartTime_)).count();
     iterationStats.emplace_back(runtime, "LNS", instance_.getAgentNum(),
-                                instance_.getTasksNum(), solution_.sumOfCosts);
+                                instance_.getTasksNum(), solution_.sumOfCosts, feasibleSolutionUpdated);
     saTemperature *= saCoolingCoefficient;
   }
 
@@ -608,7 +611,7 @@ void LNS::computeRegret(bool firstIteration) {
     // If we rejected the last iteration solution, then we are starting again. In the first loop of this iteration we can reuse the computation we did in the first loop of the last iteration. Rest would need to be computed again.
     if (numOfFailures > 0 && firstIteration) {
       // Compute f3 - f2, f4 - f3 etc as needed.
-      pairing_heap<Utility, compare<Utility::CompareNode>>
+      pairing_heap<Utility, compare<Utility::CompareUtilities>>
           conflictTaskServiceTimes =
               lnsNeighborhood.serviceTimesHeapMap[conflictTask];
       int nextValidUtilityCounter = numOfFailures;
@@ -619,7 +622,7 @@ void LNS::computeRegret(bool firstIteration) {
       Utility bestUtility = conflictTaskServiceTimes.top();
       conflictTaskServiceTimes.pop();
       Utility nextBestValidUtility = conflictTaskServiceTimes.top();
-      Regret regret(conflictTask, bestUtility.agent, bestUtility.taskPosition,
+      Regret regret(conflictTask, bestUtility.agent, bestUtility.taskPosition, bestUtility.pathLength, bestUtility.agentTasksLen, 
                     nextBestValidUtility.value - bestUtility.value);
       lnsNeighborhood.regretMaxHeap.push(regret);
     } else {
@@ -629,7 +632,7 @@ void LNS::computeRegret(bool firstIteration) {
 }
 
 void LNS::computeRegretForTask(int task, bool firstIteration) {
-  pairing_heap<Utility, compare<Utility::CompareNode>> serviceTimes;
+  pairing_heap<Utility, compare<Utility::CompareUtilities>> serviceTimes;
 
   // The task has to start after the earliest time step but needs to finish before the latest time step. However we cannot give any guarantee on the latest timestep so we only work with the earliest timestep
   int earliestTimestep = 0;
@@ -795,7 +798,7 @@ void LNS::computeRegretForTask(int task, bool firstIteration) {
   Utility bestUtility = serviceTimes.top();
   serviceTimes.pop();
   Utility secondBestUtility = serviceTimes.top();
-  Regret regret(task, bestUtility.agent, bestUtility.taskPosition,
+  Regret regret(task, bestUtility.agent, bestUtility.taskPosition, bestUtility.pathLength, bestUtility.agentTasksLen,
                 secondBestUtility.value - bestUtility.value);
   lnsNeighborhood.regretMaxHeap.push(regret);
 }
@@ -803,7 +806,7 @@ void LNS::computeRegretForTask(int task, bool firstIteration) {
 void LNS::computeRegretForTaskWithAgent(
     TaskRegretPacket regretPacket, vector<int>* taskAssignments,
     vector<Path>* taskPaths, vector<pair<int, int>>* precedenceConstraints,
-    pairing_heap<Utility, compare<Utility::CompareNode>>* serviceTimes) {
+    pairing_heap<Utility, compare<Utility::CompareUtilities>>* serviceTimes) {
 
   // Compute the first position along the agent's task assignments where we can insert this task
   int firstValidPosition = 0;
@@ -1031,10 +1034,11 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
   if (nextTask != -1) {
     value += (double)taskPathsRef[nextTask].size();
   }
+  auto pathLength = value;
   value -= (lnsNeighborhood.conflictedTasksPathSize.at(regretPacket.task) +
             pathSizeChange);
 
-  Utility utility(regretPacket.agent, regretPacket.taskPosition, value);
+  Utility utility(regretPacket.agent, regretPacket.taskPosition, pathLength, (int)taskAssignmentsRef.size(), value);
   return utility;
 }
 

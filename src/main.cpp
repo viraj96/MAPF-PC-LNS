@@ -115,5 +115,24 @@ int main(int argc, char** argv) {
     saveFileForCBSPC.fileSave();
   }
 
-  std::cout << "Success = " << success << endl;
+  double firstFeasibleSolutionTime = 0;
+  if (success) {
+    for (const IterationStats& iter : lnsInstance.iterationStats) {
+      if (iter.feasibleSolutionFound) {
+        firstFeasibleSolutionTime = iter.runtime;
+        break;
+      }
+    }
+  }
+  else {
+    firstFeasibleSolutionTime = INT_MAX;
+  }
+
+  std::cout << "MAPF-PC-LNS: "
+            << "\n\tRuntime = " << lnsInstance.runtime
+            << "\n\tIterations = " << lnsInstance.iterationStats.size()
+            << "\n\tFirst Feasible Solution Runtime = " << firstFeasibleSolutionTime
+            << "\n\tSolution Cost = " << lnsInstance.getSolution().sumOfCosts
+            << "\n\tNumber of failures = " << lnsInstance.numOfFailures
+            << "\n\tSuccess = " << success << endl;
 }

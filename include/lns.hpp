@@ -121,20 +121,31 @@ struct Agent {
 // We need min-heap for the utility since we want to quickly access the tasks which take the minimum time to complete
 struct Utility {
   int agent, taskPosition;
+  int pathLength, agentTasksLen;
   double value;
 
   Utility() {
     agent = -1;
     taskPosition = -1;
+    pathLength = -1;
+    agentTasksLen = -1;
     value = std::numeric_limits<double>::max();
   }
 
-  Utility(int agent, int taskPosition, double value)
-      : agent(agent), taskPosition(taskPosition), value(value) {}
+  Utility(int agent, int taskPosition, int pathLength, int agentTasksLen, double value)
+      : agent(agent), taskPosition(taskPosition), pathLength(pathLength), agentTasksLen(agentTasksLen), value(value) {}
 
-  struct CompareNode {
+  struct CompareUtilities {
     bool operator()(const Utility& lhs, const Utility& rhs) const {
-      return lhs.value >= rhs.value;
+      if (lhs.value != rhs.value) {
+        return lhs.value > rhs.value;
+      }
+      // Now that the regret values are same we move to compare the path lengths and prefer the regret with smaller path
+      if (lhs.pathLength != rhs.pathLength) {
+        return lhs.pathLength > rhs.pathLength;
+      }
+      // If even the path lengths are same then we will move to using the agent tasks queue lengths 
+      return lhs.agentTasksLen >= rhs.agentTasksLen;
     }
   };
 };
@@ -142,14 +153,23 @@ struct Utility {
 // We need max-heap for the regret since we want to quickly access the task whose regret would be maximum
 struct Regret {
   int task, agent, taskPosition;
+  int pathLength, agentTasksLen;
   double value;
 
-  Regret(int task, int agent, int taskPosition, double value)
-      : task(task), agent(agent), taskPosition(taskPosition), value(value) {}
+  Regret(int task, int agent, int taskPosition, int pathLength, int agentTasksLen, double value)
+      : task(task), agent(agent), taskPosition(taskPosition), pathLength(pathLength), agentTasksLen(agentTasksLen), value(value) {}
 
-  struct CompareNode {
+  struct CompareRegrets {
     bool operator()(const Regret& lhs, const Regret& rhs) const {
-      return lhs.value <= rhs.value;
+      if (lhs.value != rhs.value) {
+        return lhs.value < rhs.value;
+      }
+      // Now that the regret values are same we move to compare the path lengths and prefer the regret with smaller path
+      if (lhs.pathLength != rhs.pathLength) {
+        return lhs.pathLength > rhs.pathLength;
+      }
+      // If even the path lengths are same then we will move to using the agent tasks queue lengths 
+      return lhs.agentTasksLen >= rhs.agentTasksLen;
     }
   };
 };
@@ -163,8 +183,8 @@ struct Neighbor {
   set<int> conflictedTasks, patchedTasks, immutableConflictedTasks;
   map<int, bool> commitedTasks;
   map<int, int> conflictedTasksPathSize;
-  pairing_heap<Regret, compare<Regret::CompareNode>> regretMaxHeap;
-  map<int, pairing_heap<Utility, compare<Utility::CompareNode>>>
+  pairing_heap<Regret, compare<Regret::CompareRegrets>> regretMaxHeap;
+  map<int, pairing_heap<Utility, compare<Utility::CompareUtilities>>>
       serviceTimesHeapMap;
 };
 
@@ -328,7 +348,7 @@ class LNS {
   void computeRegretForTaskWithAgent(
       TaskRegretPacket regretPacket, vector<int>* taskAssignments,
       vector<Path>* taskPaths, vector<pair<int, int>>* precedenceConstraints,
-      pairing_heap<Utility, compare<Utility::CompareNode>>* serviceTimes);
+      pairing_heap<Utility, compare<Utility::CompareUtilities>>* serviceTimes);
 
   void commitBestRegretTask(Regret bestRegret);
   void commitAncestorTaskOf(int globalTask,
