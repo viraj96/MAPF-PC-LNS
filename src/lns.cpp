@@ -338,20 +338,10 @@ bool LNS::run() {
     extractFeasibleSolution();
   }
 
-  if (valid) {
-    PLOGV << "Solution was found!\n";
-    PLOGV << "MAPF-PC-LNS: "
-          << "\n\tRuntime = " << runtime
-          << "\n\tIterations = " << iterationStats.size()
-          << "\n\tSolution Cost = " << solution_.sumOfCosts
-          << "\n\tNumber of failures = " << numOfFailures << endl;
-    return valid;
-  }
-
   set<int> oldConflictedTasks = lnsNeighborhood.conflictedTasks;
 
   // LNS loop
-  while (!valid && runtime < timeLimit_ &&
+  while (runtime < timeLimit_ &&
          (int)iterationStats.size() <= numOfIterations_) {
 
     int oldSolutionConflictNum;
@@ -451,7 +441,7 @@ bool LNS::run() {
       solution_ = previousSolution_;
       numOfFailures++;
       PLOGD << "Rejecting this solution!\n";
-    } else if (oldSolutionConflictNum == (int)conflictedTasks.size()) {
+    } else if (oldSolutionConflictNum == (int)conflictedTasks.size() && oldSolutionConflictNum != 0) {
       if (previousSolution_.sumOfCosts <= solution_.sumOfCosts) {
 
         double acceptanceProb =

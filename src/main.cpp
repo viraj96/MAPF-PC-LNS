@@ -5,6 +5,7 @@
 #include "plog/Initializers/ConsoleInitializer.h"
 
 #include <boost/program_options.hpp>
+#include "lns.hpp"
 #include "common.hpp"
 #include "costchecker.hpp"
 #include "instance.hpp"
@@ -97,7 +98,14 @@ int main(int argc, char** argv) {
           vm["cutoffTime"].as<double>(), initialSolutionStrategy);
   bool success = lnsInstance.run();
 
-  std::cout << lnsInstance.getFeasibleSolution().toString() << std::endl;
+  FeasibleSolution anytimeSolution = lnsInstance.getFeasibleSolution();
+  if (!anytimeSolution.agentPaths.empty()) {
+    PLOGI << "Anytime solution found!\n";
+    std::cout << anytimeSolution.toString() << std::endl;
+  }
+  else {
+    PLOGE << "Anytime solution was not found!\n";
+  }
 
   if (vm["genReport"].as<bool>()) {
     SaveToTxt saveFileForCBSPC;
