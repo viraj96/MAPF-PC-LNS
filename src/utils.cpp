@@ -139,3 +139,28 @@ bool topologicalSort(const Instance* instance,
   assert((int)planningOrder.size() == instance->getTasksNum());
   return true;
 }
+
+bool isSamePath(const Path& p1, const Path& p2) {
+  if (p1.size() != p2.size()) {
+    return false;
+  }
+  for (int i = 0; i < (int)p1.size(); i++) {
+    if (p1.path[i].location != p2.path[i].location) {
+      return false;
+    }
+  }
+  return true;
+}
+
+set<Conflicts> extractNConflicts(int size, const set<Conflicts>& conflicts) {
+  int i = 0;
+  set<Conflicts> result;
+  for (Conflicts conflict : conflicts) {
+    if (i >= size) {
+      break;
+    }
+    result.insert(conflict);
+    i++;
+  }
+  return result;
+}

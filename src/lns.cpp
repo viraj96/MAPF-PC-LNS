@@ -1,4 +1,5 @@
 #include "lns.hpp"
+#include <math.h>
 #include <boost/process.hpp>
 #include <boost/process/pipe.hpp>
 #include <numeric>
@@ -7,40 +8,16 @@
 #include "common.hpp"
 #include "utils.hpp"
 
-bool isSamePath(const Path& p1, const Path& p2) {
-  if (p1.size() != p2.size()) {
-    return false;
-  }
-  for (int i = 0; i < (int)p1.size(); i++) {
-    if (p1.path[i].location != p2.path[i].location) {
-      return false;
-    }
-  }
-  return true;
-}
-
-set<int> extractNConflicts(int size, const set<int>& conflicts) {
-  int i = 0;
-  set<int> result;
-  for (int conflict : conflicts) {
-    if (i >= size) {
-      break;
-    }
-    result.insert(conflict);
-    i++;
-  }
-  return result;
-}
-
 LNS::LNS(int numOfIterations, const Instance& instance, int neighborSize,
-         double timeLimit, string initialStrategy)
+         double timeLimit, string initialStrategy, string acceptanceCriteria)
     : numOfIterations_(numOfIterations),
       neighborSize_(neighborSize),
       instance_(instance),
       solution_(instance),
       previousSolution_(instance),
       timeLimit_(timeLimit),
-      initialSolutionStrategy(std::move(initialStrategy)) {
+      initialSolutionStrategy(std::move(initialStrategy)),
+      acceptanceCriteria(std::move(acceptanceCriteria)) {
   plannerStartTime_ = Time::now();
 }
 
@@ -52,21 +29,19 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
   string solver;
   if (variant == "sota_cbs") {
     solver = "CBS";
-  }
-  else if (variant == "sota_pbs") {
+  } else if (variant == "sota_pbs") {
     solver = "PBS";
-  }
-  else {
+  } else {
     PLOGE << "Initial solution solver using MAPF-PC variant not supported\n";
     return false;
   }
 
   // The path to the command when you use the vscode launch file
-  string command = "./MAPF-PC/build/bin/task_assignment -m " +
-                   instance_.getMapName() + " -a " +
-                   instance_.getAgentTaskFName() + " -k " +
-                   std::to_string(instance_.getAgentNum()) + " -t " +
-                   std::to_string(instance_.getTasksNum()) + " --solver " + solver;
+  string command =
+      "./MAPF-PC/build/bin/task_assignment -m " + instance_.getMapName() +
+      " -a " + instance_.getAgentTaskFName() + " -k " +
+      std::to_string(instance_.getAgentNum()) + " -t " +
+      std::to_string(instance_.getTasksNum()) + " --solver " + solver;
 
   // Run a child process to spawn the MAPC-PC codebase with the current map and agent informations
   namespace bp = boost::process;
@@ -299,21 +274,97 @@ bool LNS::buildGreedySolution() {
 
 void LNS::extractFeasibleSolution() {
 
-  incumbentSolution_.numOfCols = instance_.numOfCols;
-  incumbentSolution_.sumOfCosts = solution_.sumOfCosts;
-  if ((int)incumbentSolution_.agentPaths.size() == 0) {
-    incumbentSolution_.agentPaths.resize(instance_.getAgentNum());
-  }
-  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
-    if (!solution_.agents[agent].taskAssignments.empty()) {
-      incumbentSolution_.agentPaths[agent] = solution_.agents[agent].path;
+  // Only update the feasible solution if the new solution has better cost!
+  if (incumbentSolution_.agentPaths.empty() ||
+      incumbentSolution_.sumOfCosts >= solution_.sumOfCosts) {
+    incumbentSolution_.numOfCols = instance_.numOfCols;
+    incumbentSolution_.sumOfCosts = solution_.sumOfCosts;
+    if ((int)incumbentSolution_.agentPaths.size() == 0) {
+      incumbentSolution_.agentPaths.resize(instance_.getAgentNum());
     }
-    else {
-      incumbentSolution_.agentPaths[agent] = Path();
+    for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+      if (!solution_.agents[agent].taskAssignments.empty()) {
+        incumbentSolution_.agentPaths[agent] = solution_.agents[agent].path;
+      } else {
+        incumbentSolution_.agentPaths[agent] = Path();
+      }
     }
   }
 }
 
+void LNS::simulatedAnnealing(set<Conflicts>& conflictedTasks) {
+
+  double acceptanceProb =
+      exp((previousSolution_.sumOfCosts - solution_.sumOfCosts) / temperature);
+  std::cout << "Previous Sum Of Costs = " << previousSolution_.sumOfCosts
+            << std::endl;
+  std::cout << "Current Sum Of Costs = " << solution_.sumOfCosts << std::endl;
+  std::cout << "Temperature = " << temperature << std::endl;
+  std::cout << "Acceptance probability = " << acceptanceProb << std::endl;
+  if ((double)rand() / (RAND_MAX) < acceptanceProb) {
+    // Use simulated annealing to potentially accept worse solutions!
+    numOfFailures = 0;
+    lnsNeighborhood.conflictTasks =
+        extractNConflicts(neighborSize_, conflictedTasks);
+  } else {
+    // Reject this solution
+    solution_ = previousSolution_;
+    numOfFailures++;
+    PLOGD << "Rejecting this solution!\n";
+  }
+  temperature *= coolingCoefficient;
+}
+
+// FIXME!
+void LNS::thresholdAcceptance(set<Conflicts>& conflictedTasks) {
+
+  // In this case we are worse than the previous solution but within some threshold so we can accept this one
+  if (solution_.sumOfCosts - previousSolution_.sumOfCosts < temperature) {
+    numOfFailures = 0;
+    lnsNeighborhood.conflictTasks =
+        extractNConflicts(neighborSize_, conflictedTasks);
+  } else {
+    // Reject this solution
+    solution_ = previousSolution_;
+    numOfFailures++;
+    PLOGD << "Rejecting this solution!\n";
+  }
+  temperature *= coolingCoefficient;
+}
+
+void LNS::oldBachelorsAcceptance(set<Conflicts>& conflictedTasks) {
+
+  if (solution_.sumOfCosts - previousSolution_.sumOfCosts < temperature) {
+    // Accept this solution and reduce the temperature
+    numOfFailures = 0;
+    lnsNeighborhood.conflictTasks =
+        extractNConflicts(neighborSize_, conflictedTasks);
+    temperature *= coolingCoefficient;
+  } else {
+    // Reject this solution and increase the temperature
+    solution_ = previousSolution_;
+    numOfFailures++;
+    temperature *= heatingCoefficient;
+    PLOGD << "Rejecting this solution\n";
+  }
+}
+
+void LNS::greatDelugeAlgorithm(set<Conflicts>& conflictedTasks) {
+
+  if (solution_.sumOfCosts - previousSolution_.sumOfCosts < temperature) {
+    // This temperature acts as a water level and we want to accept solutions that fall within some water level and corresponding increase it further for future iterations
+    // Since we are effectively doing a minimization problem we need to decrease the temperature ONLY if we accept
+    numOfFailures = 0;
+    lnsNeighborhood.conflictTasks =
+        extractNConflicts(neighborSize_, conflictedTasks);
+    temperature *= coolingCoefficient;
+  } else {
+    // Reject this solution but dont change the temperature'
+    solution_ = previousSolution_;
+    numOfFailures++;
+    PLOGD << "Rejecting this solution\n";
+  }
+}
 
 bool LNS::run() {
 
@@ -339,9 +390,9 @@ bool LNS::run() {
   PLOGD << "Initial solution cost = " << solution_.sumOfCosts
         << ", Runtime = " << initialSolutionRuntime_ << endl;
 
-  set<int> conflictedTasks;
+  set<Conflicts> conflictedTasks;
   bool valid = validateSolution(&conflictedTasks);
-  lnsNeighborhood.conflictedTasks =
+  lnsNeighborhood.conflictTasks =
       extractNConflicts(neighborSize_, conflictedTasks);
 
   bool feasibleSolutionUpdated = false;
@@ -350,10 +401,15 @@ bool LNS::run() {
     extractFeasibleSolution();
   }
 
+  temperature = solution_.sumOfCosts * (tolerance / 100);
+  if (acceptanceCriteria == "SA") {
+    temperature /= log(2);
+  }
+
   iterationStats.emplace_back(initialSolutionRuntime_, "greedy",
                               instance_.getAgentNum(), instance_.getTasksNum(),
                               solution_.sumOfCosts, feasibleSolutionUpdated);
-  set<int> oldConflictedTasks = lnsNeighborhood.conflictedTasks;
+  set<Conflicts> oldConflictedTasks = lnsNeighborhood.conflictTasks;
 
   // LNS loop
   while (runtime < timeLimit_) {
@@ -366,9 +422,9 @@ bool LNS::run() {
 
     // If we rejected the solution in the previous iteration then we need to reset the conflicted tasks!
     if (numOfFailures > 0) {
-      lnsNeighborhood.conflictedTasks = oldConflictedTasks;
+      lnsNeighborhood.conflictTasks = oldConflictedTasks;
     } else {
-      oldConflictedTasks = lnsNeighborhood.conflictedTasks;
+      oldConflictedTasks = lnsNeighborhood.conflictTasks;
     }
 
     // This is the case where we accepted the solution at the end of the loop in the previous iteration
@@ -383,27 +439,29 @@ bool LNS::run() {
 
       // This accounts only for the tasks that were in conflict but not the tasks whose paths would also have been invalidated.
       // We now account for the additional tasks added to keep track of whether its the first iteration of this LNS loop
-      oldSolutionConflictNum = (int)lnsNeighborhood.conflictedTasks.size();
+      oldSolutionConflictNum = (int)lnsNeighborhood.conflictTasks.size();
     }
 
     PLOGD << "Printing neighborhood conflict tasks\n";
-    PLOGD << "Size: " << lnsNeighborhood.conflictedTasks.size() << "\n";
-    for (int conflictTask : lnsNeighborhood.conflictedTasks) {
-      PLOGD << "Conflicted Task : " << conflictTask << "\n";
+    PLOGD << "Size: " << lnsNeighborhood.conflictTasks.size() << "\n";
+    for (Conflicts conflictTask : lnsNeighborhood.conflictTasks) {
+      PLOGD << "Conflicted Task : " << conflictTask.task << "\n";
     }
 
     prepareNextIteration();
 
     // This needs to happen after prepare iteration since we updated the conflictedTasks variable in the prepare next iteration function
-    for (int task : lnsNeighborhood.conflictedTasks) {
-      lnsNeighborhood.commitedTasks.insert(make_pair(task, false));
+    for (Conflicts conflictedTask : lnsNeighborhood.conflictTasks) {
+      lnsNeighborhood.commitedTasks.insert(
+          make_pair(conflictedTask.task, false));
     }
-    lnsNeighborhood.immutableConflictedTasks = lnsNeighborhood.conflictedTasks;
+    lnsNeighborhood.immutableConflictTasks = lnsNeighborhood.conflictTasks;
 
     // Compute regret for each of the tasks that are in the conflicting set
     // Pick the best one and repeat the whole process again
-    while (!lnsNeighborhood.conflictedTasks.empty()) {
-      computeRegret((int)lnsNeighborhood.conflictedTasks.size() - lnsNeighborhood.additionalTasksAdded ==
+    while (!lnsNeighborhood.conflictTasks.empty()) {
+      computeRegret((int)lnsNeighborhood.conflictTasks.size() -
+                        lnsNeighborhood.additionalTasksAdded ==
                     oldSolutionConflictNum);
       Regret bestRegret = lnsNeighborhood.regretMaxHeap.top();
       // Use the best regret task and insert it in its correct location
@@ -446,8 +504,7 @@ bool LNS::run() {
       // Solution was not valid as we found some conflicts!
       feasibleSolutionUpdated = false;
       PLOGE << "The solution was not valid!\n";
-    }
-    else {
+    } else {
       extractFeasibleSolution();
       feasibleSolutionUpdated = true;
     }
@@ -457,40 +514,39 @@ bool LNS::run() {
       solution_ = previousSolution_;
       numOfFailures++;
       PLOGD << "Rejecting this solution!\n";
-    } else if (oldSolutionConflictNum == (int)conflictedTasks.size() && oldSolutionConflictNum != 0) {
+    } else if (oldSolutionConflictNum == (int)conflictedTasks.size() &&
+               oldSolutionConflictNum != 0) {
       if (previousSolution_.sumOfCosts <= solution_.sumOfCosts) {
 
-        double acceptanceProb =
-            exp((previousSolution_.sumOfCosts - solution_.sumOfCosts) /
-                saTemperature);
-        if ((double)rand() / (RAND_MAX) > acceptanceProb) {
-          // Use simulated annealing to potentially accept worse solutions!
-          numOfFailures = 0;
-          lnsNeighborhood.conflictedTasks =
-              extractNConflicts(neighborSize_, conflictedTasks);
+        // Ensure that we are either accepting or rejecting a solution here!
+        if (acceptanceCriteria == "SA") {
+          simulatedAnnealing(conflictedTasks);
+        } else if (acceptanceCriteria == "TA") {
+          thresholdAcceptance(conflictedTasks);
+        } else if (acceptanceCriteria == "OBA") {
+          oldBachelorsAcceptance(conflictedTasks);
+        } else if (acceptanceCriteria == "GDA") {
+          greatDelugeAlgorithm(conflictedTasks);
         } else {
-          // Reject this solution
-          solution_ = previousSolution_;
-          numOfFailures++;
-          PLOGD << "Rejecting this solution!\n";
+          static_assert(true);
         }
       } else {
         // Accept this solution
         numOfFailures = 0;
-        lnsNeighborhood.conflictedTasks =
+        lnsNeighborhood.conflictTasks =
             extractNConflicts(neighborSize_, conflictedTasks);
       }
     } else {
       // Accept this solution
       numOfFailures = 0;
-      lnsNeighborhood.conflictedTasks =
+      lnsNeighborhood.conflictTasks =
           extractNConflicts(neighborSize_, conflictedTasks);
     }
 
     runtime = ((fsec)(Time::now() - plannerStartTime_)).count();
     iterationStats.emplace_back(runtime, "LNS", instance_.getAgentNum(),
-                                instance_.getTasksNum(), solution_.sumOfCosts, feasibleSolutionUpdated);
-    saTemperature *= saCoolingCoefficient;
+                                instance_.getTasksNum(), solution_.sumOfCosts,
+                                feasibleSolutionUpdated);
   }
 
   printPaths();
@@ -509,31 +565,44 @@ void LNS::prepareNextIteration() {
 
   // Find the tasks that are following the earliest conflicting task as their paths need to be invalidated
   vector<vector<int>> successors = instance_.getSuccessors();
-  lnsNeighborhood.additionalTasksAdded = (int)lnsNeighborhood.conflictedTasks.size();
+  lnsNeighborhood.additionalTasksAdded =
+      (int)lnsNeighborhood.conflictTasks.size();
 
   // We need to include all the successors of the original conflicted tasks to ensure that we dont try to find their paths later down the line because otherwise we will face errors since the ancestors of those successor tasks wont have paths.
-  for (int conflictTask : lnsNeighborhood.conflictedTasks) {
-    set<int> successorsOfConflictTask = reachableSet(conflictTask, successors);
-    lnsNeighborhood.conflictedTasks.merge(successorsOfConflictTask);
+  for (Conflicts conflictTask : lnsNeighborhood.conflictTasks) {
+    set<int> successorsOfConflictTask =
+        reachableSet(conflictTask.task, successors);
+    for (int successorOfConflictTask : successorsOfConflictTask) {
+      int successorAgent = solution_.taskAgentMap[successorOfConflictTask];
+      assert(successorAgent != UNASSIGNED);
+      int successorTaskPosition =
+          solution_.getLocalTaskIndex(successorAgent, successorOfConflictTask);
+      Conflicts successorConflict(successorOfConflictTask, successorAgent,
+                                  successorTaskPosition);
+      lnsNeighborhood.conflictTasks.insert(successorConflict);
+    }
   }
-  lnsNeighborhood.additionalTasksAdded = (int)lnsNeighborhood.conflictedTasks.size() - lnsNeighborhood.additionalTasksAdded;
+  lnsNeighborhood.additionalTasksAdded =
+      (int)lnsNeighborhood.conflictTasks.size() -
+      lnsNeighborhood.additionalTasksAdded;
 
   // If t_id is deleted then t_id + 1 task needs to be fixed
   set<int> tasksToFix, affectedAgents;
-  for (int invalidTask : lnsNeighborhood.conflictedTasks) {
+  for (Conflicts invalidTask : lnsNeighborhood.conflictTasks) {
 
-    int agent = solution_.getAgentWithTask(invalidTask),
-        taskPosition = solution_.getLocalTaskIndex(agent, invalidTask);
-    PLOGD << "Invalidating task: " << invalidTask << ", Agent: " << agent
-          << endl;
+    int agent = invalidTask.agent, taskPosition = invalidTask.taskPosition;
+    PLOGD << "Invalidating task: " << invalidTask.task << ", Agent: " << agent
+          << " at position: " << taskPosition << " with path length = "
+          << solution_.agents[agent].taskPaths[taskPosition].size() << endl;
 
     // If the invalidated task was not the last local task of this agent then t_id + 1 exists
     // If the invalid task was not the last task
-    if (invalidTask != solution_.getAgentGlobalTasks(agent).back()) {
+    if (invalidTask.task != solution_.getAgentGlobalTasks(agent).back()) {
       int nextTask = solution_.getAgentGlobalTasks(agent, taskPosition + 1);
+      PLOGD << "Found a potential next task!\n";
       // Next task can still be undefined in the case where that task was removed in the previous iteration of this loop
-      if (lnsNeighborhood.conflictedTasks.find(nextTask) ==
-              lnsNeighborhood.conflictedTasks.end() &&
+      if (lnsNeighborhood.conflictTasks.count(
+              Conflicts(nextTask, agent, taskPosition + 1)) == 0 &&
           nextTask != UNDEFINED) {
         tasksToFix.insert(nextTask);
         PLOGD << "Next task: " << nextTask << endl;
@@ -543,13 +612,15 @@ void LNS::prepareNextIteration() {
     affectedAgents.insert(agent);
 
     // Marking past information about this conflicting task
-    solution_.taskAgentMap[invalidTask] = UNASSIGNED;
-    solution_.agents[agent].clearIntraAgentPrecedenceConstraint(invalidTask);
+    solution_.taskAgentMap[invalidTask.task] = UNASSIGNED;
+    solution_.agents[agent].clearIntraAgentPrecedenceConstraint(
+        invalidTask.task);
     // Needs to happen after clearing precedence constraints
     solution_.agents[agent].taskAssignments[taskPosition] = UNDEFINED;
 
-    lnsNeighborhood.conflictedTasksPathSize.insert(make_pair(
-        invalidTask, solution_.agents[agent].taskPaths[taskPosition].size()));
+    lnsNeighborhood.conflictedTasksPathSize.insert(
+        make_pair(invalidTask.task,
+                  solution_.agents[agent].taskPaths[taskPosition].size()));
     solution_.agents[agent].taskPaths[taskPosition] = Path();
   }
 
@@ -607,13 +678,26 @@ void LNS::prepareNextIteration() {
 
 void LNS::computeRegret(bool firstIteration) {
   lnsNeighborhood.regretMaxHeap.clear();
-  for (int conflictTask : lnsNeighborhood.conflictedTasks) {
+  for (Conflicts conflictTask : lnsNeighborhood.conflictTasks) {
     // If we rejected the last iteration solution, then we are starting again. In the first loop of this iteration we can reuse the computation we did in the first loop of the last iteration. Rest would need to be computed again.
     if (numOfFailures > 0 && firstIteration) {
       // Compute f3 - f2, f4 - f3 etc as needed.
       pairing_heap<Utility, compare<Utility::CompareUtilities>>
           conflictTaskServiceTimes =
-              lnsNeighborhood.serviceTimesHeapMap[conflictTask];
+              lnsNeighborhood.serviceTimesHeapMap[conflictTask.task];
+
+      std::cout << "Num Failures = " << numOfFailures << std::endl;
+      auto conflictTaskServiceTimesCopy = conflictTaskServiceTimes;
+      std::cout << "Printing service times heap map!\n";
+      while (!conflictTaskServiceTimesCopy.empty()) {
+        auto ct = conflictTaskServiceTimesCopy.top();
+        std::cout << "Task = " << conflictTask.task << ", Agent = " << ct.agent
+                  << ", Task Position = " << ct.taskPosition
+                  << ",  Path Length = " << ct.pathLength
+                  << ", Value = " << ct.value << std::endl;
+        conflictTaskServiceTimesCopy.pop();
+      }
+
       int nextValidUtilityCounter = numOfFailures;
       while (nextValidUtilityCounter > 0) {
         conflictTaskServiceTimes.pop();
@@ -622,12 +706,25 @@ void LNS::computeRegret(bool firstIteration) {
       Utility bestUtility = conflictTaskServiceTimes.top();
       conflictTaskServiceTimes.pop();
       Utility nextBestValidUtility = conflictTaskServiceTimes.top();
-      Regret regret(conflictTask, bestUtility.agent, bestUtility.taskPosition, bestUtility.pathLength, bestUtility.agentTasksLen, 
+      Regret regret(conflictTask.task, bestUtility.agent,
+                    bestUtility.taskPosition, bestUtility.pathLength,
+                    bestUtility.agentTasksLen,
                     nextBestValidUtility.value - bestUtility.value);
       lnsNeighborhood.regretMaxHeap.push(regret);
+
     } else {
-      computeRegretForTask(conflictTask, firstIteration);
+      computeRegretForTask(conflictTask.task, firstIteration);
     }
+  }
+  std::cout << "Printing regret max heap now!!\n";
+  auto regretMaxHeapCopy = lnsNeighborhood.regretMaxHeap;
+  while (!regretMaxHeapCopy.empty()) {
+    auto reg = regretMaxHeapCopy.top();
+    std::cout << "Task = " << reg.task << ", Agent = " << reg.agent
+              << ", Task Position = " << reg.taskPosition
+              << ",  Path Length = " << reg.pathLength
+              << ", Value = " << reg.value << std::endl;
+    regretMaxHeapCopy.pop();
   }
 }
 
@@ -798,7 +895,8 @@ void LNS::computeRegretForTask(int task, bool firstIteration) {
   Utility bestUtility = serviceTimes.top();
   serviceTimes.pop();
   Utility secondBestUtility = serviceTimes.top();
-  Regret regret(task, bestUtility.agent, bestUtility.taskPosition, bestUtility.pathLength, bestUtility.agentTasksLen,
+  Regret regret(task, bestUtility.agent, bestUtility.taskPosition,
+                bestUtility.pathLength, bestUtility.agentTasksLen,
                 secondBestUtility.value - bestUtility.value);
   lnsNeighborhood.regretMaxHeap.push(regret);
 }
@@ -822,6 +920,16 @@ void LNS::computeRegretForTaskWithAgent(
 
   for (int j = firstValidPosition; j <= (int)taskAssignments->size(); j++) {
 
+    if (find_if(begin(lnsNeighborhood.conflictTasks),
+                end(lnsNeighborhood.conflictTasks),
+                [regretPacket, j](Conflicts conflict) {
+                  return regretPacket.task == conflict.task &&
+                         regretPacket.agent == conflict.agent &&
+                         j == conflict.taskPosition;
+                }) != end(lnsNeighborhood.conflictTasks)) {
+      // We dont want to compute regret for the same agent, task positions that led to the original conflict!
+      continue;
+    }
     regretPacket.taskPosition = j;
     // Create a copy of the task assignments, paths and corresponding precedence constraints so that they dont get modified
     vector<Path> temporaryTaskPaths = *taskPaths;
@@ -1038,7 +1146,8 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
   value -= (lnsNeighborhood.conflictedTasksPathSize.at(regretPacket.task) +
             pathSizeChange);
 
-  Utility utility(regretPacket.agent, regretPacket.taskPosition, pathLength, (int)taskAssignmentsRef.size(), value);
+  Utility utility(regretPacket.agent, regretPacket.taskPosition, pathLength,
+                  (int)taskAssignmentsRef.size(), value);
   return utility;
 }
 
@@ -1420,7 +1529,11 @@ int LNS::extractOldLocalTaskIndex(int task, vector<int> taskQueue) {
     if (localTask == task) {
       break;
     }
-    if (lnsNeighborhood.immutableConflictedTasks.count(localTask) > 0) {
+    if (find_if(begin(lnsNeighborhood.immutableConflictTasks),
+                end(lnsNeighborhood.immutableConflictTasks),
+                [localTask](Conflicts conflict) {
+                  return conflict.task == localTask;
+                }) != end(lnsNeighborhood.immutableConflictTasks)) {
       localTaskPositionOffset++;
     }
   }
@@ -1454,8 +1567,18 @@ set<int> LNS::reachableSet(int source, vector<vector<int>> edgeList) {
 }
 
 void LNS::markResolved(int globalTask) {
-  assert(lnsNeighborhood.conflictedTasks.count(globalTask) > 0);
-  lnsNeighborhood.conflictedTasks.erase(globalTask);
+  auto it = std::find_if(begin(lnsNeighborhood.conflictTasks),
+                         end(lnsNeighborhood.conflictTasks),
+                         [globalTask](Conflicts conflicts) {
+                           return conflicts.task == globalTask;
+                         });
+  while (it != end(lnsNeighborhood.conflictTasks)) {
+    it = lnsNeighborhood.conflictTasks.erase(it);
+    it = std::find_if(it, end(lnsNeighborhood.conflictTasks),
+                      [globalTask](Conflicts conflicts) {
+                        return conflicts.task == globalTask;
+                      });
+  }
   lnsNeighborhood.conflictedTasksPathSize.erase(globalTask);
   lnsNeighborhood.commitedTasks[globalTask] = true;
 }
@@ -1468,7 +1591,7 @@ void LNS::patchAgentTaskPaths(int agent, int taskPosition) {
   }
 }
 
-bool LNS::validateSolution(set<int>* conflictedTasks) {
+bool LNS::validateSolution(set<Conflicts>* conflictedTasks) {
 
   bool result = true;
 
@@ -1500,8 +1623,10 @@ bool LNS::validateSolution(set<int>* conflictedTasks) {
       if (conflictedTasks == nullptr) {
         return false;
       }
-      conflictedTasks->insert(precedenceConstraint.first);
-      conflictedTasks->insert(precedenceConstraint.second);
+      Conflicts conflictA(precedenceConstraint.first, agentA, taskPositionA);
+      Conflicts conflictB(precedenceConstraint.second, agentB, taskPositionB);
+      conflictedTasks->insert(conflictA);
+      conflictedTasks->insert(conflictB);
     }
   }
 
@@ -1538,8 +1663,9 @@ bool LNS::validateSolution(set<int>* conflictedTasks) {
                taskIdx < (int)solution_.getAgentGlobalTasks(agentI).size();
                taskIdx++) {
             if (solution_.agents[agentI].path.timeStamps[taskIdx] > timestep) {
-              conflictedTasks->insert(
-                  solution_.getAgentGlobalTasks(agentI, taskIdx));
+              Conflicts conflict(solution_.getAgentGlobalTasks(agentI, taskIdx),
+                                 agentI, taskIdx);
+              conflictedTasks->insert(conflict);
               break;
             }
           }
@@ -1547,8 +1673,9 @@ bool LNS::validateSolution(set<int>* conflictedTasks) {
                taskIdx < (int)solution_.getAgentGlobalTasks(agentJ).size();
                taskIdx++) {
             if (solution_.agents[agentJ].path.timeStamps[taskIdx] > timestep) {
-              conflictedTasks->insert(
-                  solution_.getAgentGlobalTasks(agentJ, taskIdx));
+              Conflicts conflict(solution_.getAgentGlobalTasks(agentJ, taskIdx),
+                                 agentJ, taskIdx);
+              conflictedTasks->insert(conflict);
               break;
             }
           }
@@ -1573,8 +1700,9 @@ bool LNS::validateSolution(set<int>* conflictedTasks) {
                taskIdx < (int)solution_.getAgentGlobalTasks(agentI).size();
                taskIdx++) {
             if (solution_.agents[agentI].path.timeStamps[taskIdx] > timestep) {
-              conflictedTasks->insert(
-                  solution_.getAgentGlobalTasks(agentI, taskIdx));
+              Conflicts conflict(solution_.getAgentGlobalTasks(agentI, taskIdx),
+                                 agentI, taskIdx);
+              conflictedTasks->insert(conflict);
               break;
             }
           }
@@ -1582,8 +1710,9 @@ bool LNS::validateSolution(set<int>* conflictedTasks) {
                taskIdx < (int)solution_.getAgentGlobalTasks(agentJ).size();
                taskIdx++) {
             if (solution_.agents[agentJ].path.timeStamps[taskIdx] > timestep) {
-              conflictedTasks->insert(
-                  solution_.getAgentGlobalTasks(agentJ, taskIdx));
+              Conflicts conflict(solution_.getAgentGlobalTasks(agentJ, taskIdx),
+                                 agentJ, taskIdx);
+              conflictedTasks->insert(conflict);
               break;
             }
           }
@@ -1621,17 +1750,20 @@ bool LNS::validateSolution(set<int>* conflictedTasks) {
             if (solution_.agents[agentI].path.timeStamps
                     [(int)solution_.getAgentGlobalTasks(agentI).size() - 1] <
                 timestep) {
-              conflictedTasks->insert(solution_.getAgentGlobalTasks(
-                  agentI,
-                  (int)solution_.getAgentGlobalTasks(agentI).size() - 1));
+              int taskIdx = solution_.getAgentGlobalTasks(agentI).size() - 1;
+              Conflicts conflict(solution_.getAgentGlobalTasks(agentI, taskIdx),
+                                 agentI, taskIdx);
+              conflictedTasks->insert(conflict);
             } else {
               for (int taskIdx = 0;
                    taskIdx < (int)solution_.getAgentGlobalTasks(agentI).size();
                    taskIdx++) {
                 if (solution_.agents[agentI].path.timeStamps[taskIdx] >
                     timestep) {
-                  conflictedTasks->insert(
-                      solution_.getAgentGlobalTasks(agentI, taskIdx));
+                  Conflicts conflict(
+                      solution_.getAgentGlobalTasks(agentI, taskIdx), agentI,
+                      taskIdx);
+                  conflictedTasks->insert(conflict);
                   break;
                 }
               }
@@ -1639,17 +1771,20 @@ bool LNS::validateSolution(set<int>* conflictedTasks) {
             if (solution_.agents[agentJ].path.timeStamps
                     [(int)solution_.getAgentGlobalTasks(agentJ).size() - 1] <
                 timestep) {
-              conflictedTasks->insert(solution_.getAgentGlobalTasks(
-                  agentJ,
-                  (int)solution_.getAgentGlobalTasks(agentJ).size() - 1));
+              int taskIdx = solution_.getAgentGlobalTasks(agentJ).size() - 1;
+              Conflicts conflict(solution_.getAgentGlobalTasks(agentJ, taskIdx),
+                                 agentJ, taskIdx);
+              conflictedTasks->insert(conflict);
             } else {
               for (int taskIdx = 0;
                    taskIdx < (int)solution_.getAgentGlobalTasks(agentJ).size();
                    taskIdx++) {
                 if (solution_.agents[agentJ].path.timeStamps[taskIdx] >
                     timestep) {
-                  conflictedTasks->insert(
-                      solution_.getAgentGlobalTasks(agentJ, taskIdx));
+                  Conflicts conflict(
+                      solution_.getAgentGlobalTasks(agentJ, taskIdx), agentJ,
+                      taskIdx);
+                  conflictedTasks->insert(conflict);
                   break;
                 }
               }

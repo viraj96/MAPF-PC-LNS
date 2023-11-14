@@ -132,8 +132,13 @@ struct Utility {
     value = std::numeric_limits<double>::max();
   }
 
-  Utility(int agent, int taskPosition, int pathLength, int agentTasksLen, double value)
-      : agent(agent), taskPosition(taskPosition), pathLength(pathLength), agentTasksLen(agentTasksLen), value(value) {}
+  Utility(int agent, int taskPosition, int pathLength, int agentTasksLen,
+          double value)
+      : agent(agent),
+        taskPosition(taskPosition),
+        pathLength(pathLength),
+        agentTasksLen(agentTasksLen),
+        value(value) {}
 
   struct CompareUtilities {
     bool operator()(const Utility& lhs, const Utility& rhs) const {
@@ -144,7 +149,7 @@ struct Utility {
       if (lhs.pathLength != rhs.pathLength) {
         return lhs.pathLength > rhs.pathLength;
       }
-      // If even the path lengths are same then we will move to using the agent tasks queue lengths 
+      // If even the path lengths are same then we will move to using the agent tasks queue lengths
       return lhs.agentTasksLen >= rhs.agentTasksLen;
     }
   };
@@ -156,8 +161,14 @@ struct Regret {
   int pathLength, agentTasksLen;
   double value;
 
-  Regret(int task, int agent, int taskPosition, int pathLength, int agentTasksLen, double value)
-      : task(task), agent(agent), taskPosition(taskPosition), pathLength(pathLength), agentTasksLen(agentTasksLen), value(value) {}
+  Regret(int task, int agent, int taskPosition, int pathLength,
+         int agentTasksLen, double value)
+      : task(task),
+        agent(agent),
+        taskPosition(taskPosition),
+        pathLength(pathLength),
+        agentTasksLen(agentTasksLen),
+        value(value) {}
 
   struct CompareRegrets {
     bool operator()(const Regret& lhs, const Regret& rhs) const {
@@ -168,7 +179,7 @@ struct Regret {
       if (lhs.pathLength != rhs.pathLength) {
         return lhs.pathLength > rhs.pathLength;
       }
-      // If even the path lengths are same then we will move to using the agent tasks queue lengths 
+      // If even the path lengths are same then we will move to using the agent tasks queue lengths
       return lhs.agentTasksLen >= rhs.agentTasksLen;
     }
   };
@@ -178,18 +189,31 @@ struct TaskRegretPacket {
   int task, agent, taskPosition, earliestTimestep;
 };
 
+struct Conflicts {
+  int task, agent, taskPosition;
+  Conflicts(int task, int agent, int taskPosition) {
+    this->task = task;
+    this->agent = agent;
+    this->taskPosition = taskPosition;
+  }
+  bool operator<(const Conflicts& right) const {
+    return this->task < right.task;
+  }
+};
+
 struct Neighbor {
   int additionalTasksAdded;
-  set<int> conflictedTasks, patchedTasks, immutableConflictedTasks;
+  set<int> patchedTasks;
   map<int, bool> commitedTasks;
   map<int, int> conflictedTasksPathSize;
+  set<Conflicts> conflictTasks, immutableConflictTasks;
   pairing_heap<Regret, compare<Regret::CompareRegrets>> regretMaxHeap;
   map<int, pairing_heap<Utility, compare<Utility::CompareUtilities>>>
       serviceTimesHeapMap;
 };
 
 struct FeasibleSolution {
-  public:
+ public:
   int sumOfCosts{}, numOfCols{};
   vector<Path> agentPaths;
 
@@ -200,12 +224,18 @@ struct FeasibleSolution {
   }
 
   string toString() {
-    string result = "Feasible Solution\n\t Sum Of Costs = " + std::to_string(sumOfCosts) + "\n\t";
+    string result =
+        "Feasible Solution\n\t Sum Of Costs = " + std::to_string(sumOfCosts) +
+        "\n\t";
     for (int agent = 0; agent < (int)agentPaths.size(); agent++) {
-      result += "Agent " + std::to_string(agent) + " (cost = " + std::to_string(agentPaths[agent].endTime()) + "): \n\tPaths:\n\t";
+      result += "Agent " + std::to_string(agent) +
+                " (cost = " + std::to_string(agentPaths[agent].endTime()) +
+                "): \n\tPaths:\n\t";
       for (int t = 0; t < (int)agentPaths[agent].path.size(); t++) {
-        pair<int, int> coord = getCoordinate(agentPaths[agent].path.at(t).location);
-        result += "(" + std::to_string(coord.first) + ", " + std::to_string(coord.second) + ")@" + std::to_string(t);
+        pair<int, int> coord =
+            getCoordinate(agentPaths[agent].path.at(t).location);
+        result += "(" + std::to_string(coord.first) + ", " +
+                  std::to_string(coord.second) + ")@" + std::to_string(t);
         if (agentPaths[agent].path.at(t).isGoal) {
           result += "*";
         }
@@ -217,7 +247,6 @@ struct FeasibleSolution {
     }
     return result;
   }
-
 };
 
 class Solution {
@@ -309,15 +338,16 @@ class LNS {
   high_resolution_clock::time_point plannerStartTime_;
 
  public:
-  double runtime = 0, saTemperature = 100, saCoolingCoefficient = 0.955;
+  double runtime = 0, temperature = 100, coolingCoefficient = 0.99975,
+         heatingCoefficient = 1.00025, tolerance = 5;
   Neighbor lnsNeighborhood;
   vector<Path> initialPaths;
-  string initialSolutionStrategy;
+  string initialSolutionStrategy, acceptanceCriteria;
   list<IterationStats> iterationStats;
   int numOfFailures = 0, sumOfCosts = 0;
 
   LNS(int numOfIterations, const Instance& instance, int neighborSize,
-      double timeLimit, string initialStrategy);
+      double timeLimit, string initialStrategy, string acceptanceCriteria);
 
   inline Instance getInstance() { return instance_; }
 
@@ -332,7 +362,7 @@ class LNS {
   void patchAgentTaskPaths(int agent, int taskPosition);
 
   void printPaths() const;
-  bool validateSolution(set<int>* conflictedTasks = nullptr);
+  bool validateSolution(set<Conflicts>* conflictedTasks = nullptr);
 
   void buildConstraintTable(ConstraintTable& constraintTable, int task);
 
@@ -360,9 +390,14 @@ class LNS {
   void insertBestRegretTask(TaskRegretPacket bestRegretPacket);
 
   Solution getSolution() { return solution_; }
-  
+
   void extractFeasibleSolution();
   FeasibleSolution getFeasibleSolution() { return incumbentSolution_; }
+
+  void simulatedAnnealing(set<Conflicts>& conflictedTasks);
+  void thresholdAcceptance(set<Conflicts>& conflictedTasks);
+  void oldBachelorsAcceptance(set<Conflicts>& conflictedTasks);
+  void greatDelugeAlgorithm(set<Conflicts>& conflictedTasks);
 
   void printAgents() const {
     for (int i = 0; i < instance_.getAgentNum(); i++) {

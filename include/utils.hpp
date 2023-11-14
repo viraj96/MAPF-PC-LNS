@@ -9,3 +9,5 @@ void greedyTaskAssignment(const Instance* instance, Solution* solution);
 bool topologicalSort(const Instance* instance,
                      vector<pair<int, int>>* precedenceConstraints,
                      vector<int>& planningOrder);
+
+set<Conflicts> extractNConflicts(int size, const set<Conflicts>& conflicts);

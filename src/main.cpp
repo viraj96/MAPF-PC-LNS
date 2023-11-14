@@ -5,10 +5,10 @@
 #include "plog/Initializers/ConsoleInitializer.h"
 
 #include <boost/program_options.hpp>
-#include "lns.hpp"
 #include "common.hpp"
 #include "costchecker.hpp"
 #include "instance.hpp"
+#include "lns.hpp"
 #include "utils.hpp"
 
 int main(int argc, char** argv) {
@@ -39,6 +39,9 @@ int main(int argc, char** argv) {
                      "Debugging level");
   desc.add_options()("initialSolution,s", po::value<string>(),
                      "Strategy for the initial solution");
+  desc.add_options()("acceptanceCriteria,c",
+                     po::value<string>()->default_value("SA"),
+                     "Acceptance criteria for new solutions");
   desc.add_options()("genReport,g", po::value<bool>()->default_value(false),
                      "Whether to generate the report file that can be fed to "
                      "CBS-PC for verificattion");
@@ -65,9 +68,18 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  string acceptanceCriteria = vm["acceptanceCriteria"].as<string>();
+  if (acceptanceCriteria != "SA" && acceptanceCriteria != "TA" &&
+      acceptanceCriteria != "OBA" && acceptanceCriteria != "GDA") {
+    PLOGE << "The acceptance criteria provided is not supported! Please choose "
+             "from SA(Simulated Annealing), TA(Threshold Acceptance), OBA(Old "
+             "Bachelor's Acceptance and GDA(Great Deluge Algorithm)\n";
+    return 1;
+  }
+
   // Need to store the seed for debugging
   auto srandSeed = (int)time(nullptr);
-  // srandSeed = 1699554871;
+  // srandSeed = 1699835454;
   srand(srandSeed);
 
   Instance instance(vm["map"].as<string>(), vm["agents"].as<string>(),
@@ -95,15 +107,15 @@ int main(int argc, char** argv) {
 
   LNS lnsInstance =
       LNS(vm["maxIterations"].as<int>(), instance, vm["neighborSize"].as<int>(),
-          vm["cutoffTime"].as<double>(), initialSolutionStrategy);
+          vm["cutoffTime"].as<double>(), initialSolutionStrategy,
+          acceptanceCriteria);
   bool success = lnsInstance.run();
 
   FeasibleSolution anytimeSolution = lnsInstance.getFeasibleSolution();
   if (!anytimeSolution.agentPaths.empty()) {
     PLOGI << "Anytime solution found!\n";
     std::cout << anytimeSolution.toString() << std::endl;
-  }
-  else {
+  } else {
     PLOGE << "Anytime solution was not found!\n";
   }
 
@@ -123,15 +135,15 @@ int main(int argc, char** argv) {
         break;
       }
     }
-  }
-  else {
+  } else {
     firstFeasibleSolutionTime = INT_MAX;
   }
 
   std::cout << "MAPF-PC-LNS: "
             << "\n\tRuntime = " << lnsInstance.runtime
             << "\n\tIterations = " << lnsInstance.iterationStats.size()
-            << "\n\tFirst Feasible Solution Runtime = " << firstFeasibleSolutionTime
+            << "\n\tFirst Feasible Solution Runtime = "
+            << firstFeasibleSolutionTime
             << "\n\tSolution Cost = " << lnsInstance.getSolution().sumOfCosts
             << "\n\tNumber of failures = " << lnsInstance.numOfFailures
             << "\n\tSuccess = " << success << endl;
