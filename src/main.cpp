@@ -39,6 +39,9 @@ int main(int argc, char** argv) {
                      "Debugging level");
   desc.add_options()("initialSolution,s", po::value<string>(),
                      "Strategy for the initial solution");
+  desc.add_options()(
+      "destroyHeuristic,h", po::value<string>()->default_value("conflict"),
+      "Destroy heuristic to use for creating the LNS neighborhood");
   desc.add_options()("acceptanceCriteria,c",
                      po::value<string>()->default_value("SA"),
                      "Acceptance criteria for new solutions");
@@ -65,6 +68,15 @@ int main(int argc, char** argv) {
     PLOGE << "Incorrect initial solution strategy provided. Please choose from "
              "'greedy', 'sota_cbs' or 'sota_pbs' options"
           << endl;
+    return 1;
+  }
+
+  string destroyHeuristic = vm["destroyHeuristic"].as<string>();
+  if (destroyHeuristic != "conflict" && destroyHeuristic != "worst" &&
+      destroyHeuristic != "random" && destroyHeuristic != "shaw") {
+    PLOGE << "The destroy heuristic provided is not supported! Please choose "
+             "from 'conflict', 'worst', 'random', 'shaw' and 'ALNS' removal "
+             "operators\n";
     return 1;
   }
 
@@ -108,11 +120,11 @@ int main(int argc, char** argv) {
   LNS lnsInstance =
       LNS(vm["maxIterations"].as<int>(), instance, vm["neighborSize"].as<int>(),
           vm["cutoffTime"].as<double>(), initialSolutionStrategy,
-          acceptanceCriteria);
+          destroyHeuristic, acceptanceCriteria);
   bool success = lnsInstance.run();
 
   FeasibleSolution anytimeSolution = lnsInstance.getFeasibleSolution();
-  if (!anytimeSolution.agentPaths.empty()) {
+  if (success) {
     PLOGI << "Anytime solution found!\n";
     std::cout << anytimeSolution.toString() << std::endl;
   } else {
@@ -144,7 +156,7 @@ int main(int argc, char** argv) {
             << "\n\tIterations = " << lnsInstance.iterationStats.size()
             << "\n\tFirst Feasible Solution Runtime = "
             << firstFeasibleSolutionTime
-            << "\n\tSolution Cost = " << lnsInstance.getSolution().sumOfCosts
+            << "\n\tSolution Cost = " << anytimeSolution.sumOfCosts
             << "\n\tNumber of failures = " << lnsInstance.numOfFailures
             << "\n\tSuccess = " << success << endl;
 }

@@ -48,7 +48,9 @@ using std::vector;
 using namespace std::chrono;
 using Time = std::chrono::high_resolution_clock;
 using fsec = std::chrono::duration<float>;
-using pq =
+using pq = std::priority_queue<int, vector<int>>;
+using ppq = std::priority_queue<pair<int, int>, vector<pair<int, int>>>;
+using ppqg =
     std::priority_queue<pair<int, int>, vector<pair<int, int>>, std::greater<>>;
 
 #define MAX_TIMESTEP INT_MAX / 2
@@ -60,6 +62,13 @@ using pq =
 struct PathEntry {
   bool isGoal{};
   int location = -1;
+};
+
+enum IterationQuality {
+  bestSolutionYet = 1,
+  improvedSolution = 2,
+  dowgradedButAccepted = 3,
+  none = 4
 };
 
 struct Path {
@@ -93,8 +102,10 @@ struct IterationStats {
   bool feasibleSolutionFound;
   int numOfAgents, numOfTasks, sumOfCosts, sumOfCostsLowerBound,
       numOfConflictingPairs;
+  IterationQuality quality;
   IterationStats(double runtime, string algorithm, int numOfAgents,
-                 int numOfTasks, int sumOfCosts,  bool feasibleSolutionFound, int sumOfCostsLowerBound = 0,
+                 int numOfTasks, int sumOfCosts, bool feasibleSolutionFound,
+                 IterationQuality quality, int sumOfCostsLowerBound = 0,
                  int numOfConflictingPairs = 0)
       : runtime(runtime),
         algorithm(std::move(algorithm)),
@@ -103,5 +114,6 @@ struct IterationStats {
         numOfTasks(numOfTasks),
         sumOfCosts(sumOfCosts),
         sumOfCostsLowerBound(sumOfCostsLowerBound),
-        numOfConflictingPairs(numOfConflictingPairs) {}
+        numOfConflictingPairs(numOfConflictingPairs),
+        quality(quality) {}
 };

@@ -205,8 +205,8 @@ struct Neighbor {
   int additionalTasksAdded;
   set<int> patchedTasks;
   map<int, bool> commitedTasks;
-  map<int, int> conflictedTasksPathSize;
-  set<Conflicts> conflictTasks, immutableConflictTasks;
+  map<int, int> removedTasksPathSize;
+  set<Conflicts> removedTasks, immutableRemovedTasks;
   pairing_heap<Regret, compare<Regret::CompareRegrets>> regretMaxHeap;
   map<int, pairing_heap<Utility, compare<Utility::CompareUtilities>>>
       serviceTimesHeapMap;
@@ -225,8 +225,8 @@ struct FeasibleSolution {
 
   string toString() {
     string result =
-        "Feasible Solution\n\t Sum Of Costs = " + std::to_string(sumOfCosts) +
-        "\n\t";
+        "Feasible Solution\n\tSum Of Costs = " + std::to_string(sumOfCosts) +
+        "\n";
     for (int agent = 0; agent < (int)agentPaths.size(); agent++) {
       result += "Agent " + std::to_string(agent) +
                 " (cost = " + std::to_string(agentPaths[agent].endTime()) +
@@ -325,6 +325,27 @@ class Solution {
   }
 };
 
+struct ALNS {
+
+  // Parameter values copied from 'https://d-nb.info/1072464683/34'
+  int alnsCounter = 0, alnsCounterThreshold = 100, numDestroyHeuristics = 3,
+      recentDestroyHeuristic = -1;
+  double r1 = 65, r2 = 45, r3 = 25;
+  double delta1 = r1 + r2 + r3, delta2 = r2 + r3, delta3 = r3;
+  double reactionFactor = 0.35;
+  vector<double> weights, used, success;
+
+  ALNS() {
+
+    // Initialize the vectors
+    for (int i = 0; i < numDestroyHeuristics; i++) {
+      weights.push_back(1);
+      used.push_back(0);
+      success.push_back(0);
+    }
+  }
+};
+
 class LNS {
  private:
   int numOfIterations_;
@@ -342,12 +363,14 @@ class LNS {
          heatingCoefficient = 1.00025, tolerance = 5;
   Neighbor lnsNeighborhood;
   vector<Path> initialPaths;
-  string initialSolutionStrategy, acceptanceCriteria;
+  string initialSolutionStrategy, destroyHeuristic, acceptanceCriteria;
   list<IterationStats> iterationStats;
   int numOfFailures = 0, sumOfCosts = 0;
+  ALNS adaptiveLNS;
 
   LNS(int numOfIterations, const Instance& instance, int neighborSize,
-      double timeLimit, string initialStrategy, string acceptanceCriteria);
+      double timeLimit, string initialStrategy, string destroyHeuristic,
+      string acceptanceCriteria);
 
   inline Instance getInstance() { return instance_; }
 
@@ -391,13 +414,19 @@ class LNS {
 
   Solution getSolution() { return solution_; }
 
-  void extractFeasibleSolution();
+  bool extractFeasibleSolution();
   FeasibleSolution getFeasibleSolution() { return incumbentSolution_; }
 
-  void simulatedAnnealing(set<Conflicts>& conflictedTasks);
-  void thresholdAcceptance(set<Conflicts>& conflictedTasks);
-  void oldBachelorsAcceptance(set<Conflicts>& conflictedTasks);
-  void greatDelugeAlgorithm(set<Conflicts>& conflictedTasks);
+  void randomRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
+  void worstRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
+  void conflictRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
+  void shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
+  void alnsRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
+
+  bool simulatedAnnealing();
+  bool thresholdAcceptance();
+  bool oldBachelorsAcceptance();
+  bool greatDelugeAlgorithm();
 
   void printAgents() const {
     for (int i = 0; i < instance_.getAgentNum(); i++) {

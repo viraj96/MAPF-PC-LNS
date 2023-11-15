@@ -1,7 +1,7 @@
 #include "utils.hpp"
 
 void greedyTaskAssignment(const Instance* instance, Solution* solution) {
-  pq q;
+  ppqg q;
   vector<int> agentLastTimesteps(instance->getAgentNum(), 0);
   vector<int> agentLastLocations = instance->getStartLocations();
   vector<int> taskCompleteTimesteps(instance->getTasksNum(), -1);

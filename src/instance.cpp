@@ -1,4 +1,5 @@
 #include "instance.hpp"
+#include <boost/token_functions.hpp>
 #include <boost/tokenizer.hpp>
 #include "utils.hpp"
 
@@ -36,15 +37,33 @@ bool Instance::loadMap() {
   // Using custom mapf benchmark for now.
   // Once validated you want to move to the original mapf bechmarks
   string line;
-  char_separator<char> sep(",");
   tokenizer<char_separator<char>>::iterator begin;
 
   getline(file, line);
-  tokenizer<char_separator<char>> tokenizer(line, sep);
-  begin = tokenizer.begin();
-  numOfRows = atoi((*begin).c_str());  // Read the number of rows
-  begin++;
-  numOfCols = atoi((*begin).c_str());  // Read the number of columns
+
+  if (line[0] == 't') {
+    // Original MAPF benchmarks
+    char_separator<char> sep(" ");
+    getline(file, line);
+    tokenizer<char_separator<char>> tokenizer(line, sep);
+    begin = tokenizer.begin();
+    begin++;
+    numOfRows = atoi((*begin).c_str());  // Read the number of rows / height
+    getline(file, line);
+    tokenizer.assign(line, sep);
+    begin = tokenizer.begin();
+    begin++;
+    numOfCols = atoi((*begin).c_str());  // Read the number of columns / width
+    getline(file, line);                 // Skip the map
+  } else {
+    // Custom empty benchmark
+    char_separator<char> sep(",");
+    tokenizer<char_separator<char>> tokenizer(line, sep);
+    begin = tokenizer.begin();
+    numOfRows = atoi((*begin).c_str());  // Read the number of rows
+    begin++;
+    numOfCols = atoi((*begin).c_str());  // Read the number of columns
+  }
 
   mapSize = numOfCols * numOfRows;
   map_.resize(mapSize, false);
