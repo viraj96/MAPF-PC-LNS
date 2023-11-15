@@ -401,7 +401,20 @@ void LNS::worstRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
 }
 
 void LNS::shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
-  // PASS
+  /*
+  Shaw removal works by using the relatedness parameter ->
+  r(tsk_i, tsk_j) = w1 * distance(tsk_i_goal, tsk_j_goal) 
+                    + w2 * (abs(tsk_i_start_time - tsk_j_start_time) + abs(tsk_i_end_time - tsk_j_end_time))
+
+  -> w1 and w2 are parameters that can be 
+  -> distance(tsk_i_goal, tsk_j_goal) can be the manhattan distance
+  -> tsk_i_start_time is the end_time of prev_task in tsk_i's agent's task sequence
+  -> tsk_i_end_time is the end_time of the task
+
+  Need to remove N-1 tasks after selecting the first task randomly. N can be user input parameter
+  */
+ 
+ 
 }
 
 void LNS::alnsRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
