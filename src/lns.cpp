@@ -413,7 +413,88 @@ void LNS::shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
 
   Need to remove N-1 tasks after selecting the first task randomly. N can be user input parameter
   */
- 
+
+  // Clear old information about the LNS neighborhood. This should be the first thing that any removal operator must do!
+  lnsNeighborhood.patchedTasks.clear();
+  lnsNeighborhood.regretMaxHeap.clear();
+  lnsNeighborhood.commitedTasks.clear();
+  lnsNeighborhood.removedTasksPathSize.clear();
+
+  // Define the parameters here
+  int w1 = 9; // spatial relatedness parameter
+  int w2 = 3; // temporal relatedness parameter
+
+  // if (potentialNeighborhood.has_value()) {
+  //   // In this case we are resetting to the old neighborhood
+  //   lnsNeighborhood.removedTasks = potentialNeighborhood.value();
+  // } else {
+    // Randomly choose a task and remove it from the solution and add it to the neighborhood
+    int randomTask, randomTaskAgent, randomTaskPosition, randomTaskST, randomTaskET;
+    std::default_random_engine generator;
+    std::uniform_int_distribution<int> distribution(0, instance_.getTasksNum());
+    while ((int)lnsNeighborhood.removedTasks.size() < 1) {
+      randomTask = distribution(generator);
+      // Check that this random task was not already in the removedTasks queue
+      if (find_if(begin(lnsNeighborhood.removedTasks),
+                  end(lnsNeighborhood.removedTasks),
+                  [randomTask](Conflicts conflict) {
+                    return randomTask == conflict.task;
+                  }) != end(lnsNeighborhood.removedTasks)) {
+        continue;
+      }
+      randomTaskAgent = solution_.taskAgentMap[randomTask];
+      assert(randomTaskAgent != UNASSIGNED);
+      randomTaskPosition =
+          solution_.getLocalTaskIndex(randomTaskAgent, randomTask);
+      Conflicts conflict(randomTask, randomTaskAgent, randomTaskPosition);
+      lnsNeighborhood.removedTasks.insert(conflict);
+    }
+
+    int randomTaskLocLinear = instance_.getTaskLocations(randomTask);
+    pair<int,int> randomTaskLoc = instance_.getCoordinate(randomTaskLocLinear);
+    // PLOGE << "random task " << randomTask << endl; // FIXME: delete me 
+    // PLOGE << randomTaskLoc.first << " " << randomTaskLoc.second << endl; // FIXME: delete me
+    randomTaskST = solution_.agents[randomTaskAgent].taskPaths[randomTaskPosition-1].endTime();
+    randomTaskET = solution_.agents[randomTaskAgent].taskPaths[randomTaskPosition].endTime();
+    // PLOGE << "random task start time " << randomTaskST << endl; // FIXME: delete me
+    // PLOGE << "random task end time " << randomTaskET << endl; // FIXME: delete me
+
+    // Initialize a queue to hold the related tasks and rank by relatedness
+    // TODO:
+
+    // Find the related tasks to the above randomly selected task until neighborhood size is reached
+    while ((int)lnsNeighborhood.removedTasks.size() < neighborSize_ - 1) {
+      int relatedTask = distribution(generator);
+      // Check that this random task was not already in the removedTasks queue
+      if (find_if(begin(lnsNeighborhood.removedTasks),
+                  end(lnsNeighborhood.removedTasks),
+                  [relatedTask](Conflicts conflict) {
+                    return relatedTask == conflict.task;
+                  }) != end(lnsNeighborhood.removedTasks)) {
+        continue;
+      }
+      int relatedTaskAgent = solution_.taskAgentMap[relatedTask];
+      assert(relatedTaskAgent != UNASSIGNED);
+      int relatedTaskPosition =
+          solution_.getLocalTaskIndex(relatedTaskAgent, relatedTask);
+      // Compute the manhattan distance
+      int relatedTaskLocLinear = instance_.getTaskLocations(relatedTask);
+      pair<int,int> relatedTaskLoc = instance_.getCoordinate(relatedTaskLocLinear);
+      // PLOGD << "related task = " << relatedTask << endl; // FIXME: delete me 
+      // PLOGD << relatedTaskLoc.first << " " << relatedTaskLoc.second << endl; // FIXME: delete me 
+      int relatedManhattanDistance = instance_.getManhattanDistance(randomTaskLoc, relatedTaskLoc);
+      // PLOGD << "mahattan " << relatedManhattanDistance << endl; // FIXME: delete me 
+
+      int relatedTaskST = solution_.agents[relatedTaskAgent].taskPaths[relatedTaskPosition-1].endTime();
+      int relatedTaskET = solution_.agents[relatedTaskAgent].taskPaths[relatedTaskPosition].endTime();
+
+      // TODO: compute the relatedness and add to the queue
+
+      //Conflicts conflict(randomTask, randomTaskAgent, randomTaskPosition);
+      //lnsNeighborhood.removedTasks.insert(conflict);
+    }
+
+  // }
  
 }
 
