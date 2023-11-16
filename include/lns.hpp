@@ -366,6 +366,7 @@ class LNS {
   string initialSolutionStrategy, destroyHeuristic, acceptanceCriteria;
   list<IterationStats> iterationStats;
   int numOfFailures = 0, sumOfCosts = 0;
+  set<int> TrackShawRandomTaks;
   ALNS adaptiveLNS;
 
   LNS(int numOfIterations, const Instance& instance, int neighborSize,
@@ -444,3 +445,30 @@ class LNS {
     }
   }
 };
+  // structure to hold the related task information easily
+  struct RelatedT
+  {
+    int task;
+    int agent;
+    int task_position;
+    int start_time;
+    int end_time;
+    int manhattan_distance;
+    int relatedness;
+  };
+
+  struct RelationCompare // priority queue for relatedness
+  {
+    bool operator()(const pair<int, RelatedT> &task1, const pair<int,RelatedT> &task2)
+    {
+      return task1.first >= task2.first;
+    }
+  };
+
+  struct SetComparator // set compare for RelatedT struct
+  {
+    bool operator()(RelatedT task1, RelatedT task2) const
+    {
+      return task1.task < task2.task;
+    }
+  };
