@@ -465,7 +465,7 @@ void LNS::shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood, int p
     Expanded.insert(Random);
 
     // Selected tasks at random for some limit and find their relatedness to the random task above
-    while ((int)Expanded.size() < neighborSize_* 3) {
+    while ((int)Expanded.size() < prioritySize) {
       int relatedTask = distribution(generator);
       // Check that this selected task was not already in the expanded set
       if (find_if(begin(Expanded),
