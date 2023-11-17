@@ -366,7 +366,7 @@ class LNS {
   string initialSolutionStrategy, destroyHeuristic, acceptanceCriteria;
   list<IterationStats> iterationStats;
   int numOfFailures = 0, sumOfCosts = 0;
-  set<int> TrackShawRandomTaks;
+  set<int> trackShawRandomTasks;
   ALNS adaptiveLNS;
 
   LNS(int numOfIterations, const Instance& instance, int neighborSize,
@@ -421,7 +421,7 @@ class LNS {
   void randomRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
   void worstRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
   void conflictRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
-  void shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
+  void shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood, int prioritySize);
   void alnsRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
 
   bool simulatedAnnealing();
@@ -446,7 +446,7 @@ class LNS {
   }
 };
   // structure to hold the related task information easily
-  struct RelatedT
+  struct RelatedTasks
   {
     int task;
     int agent;
@@ -455,19 +455,28 @@ class LNS {
     int end_time;
     int manhattan_distance;
     int relatedness;
+
+    RelatedTasks(int task, int agent, int taskPosition, int start, int end, int dist, int relation)
+        : task(task),
+          agent(agent),
+          task_position(taskPosition),
+          start_time(start),
+          end_time(end),
+          manhattan_distance(dist),
+          relatedness(relation){}
   };
 
   struct RelationCompare // priority queue for relatedness
   {
-    bool operator()(const pair<int, RelatedT> &task1, const pair<int,RelatedT> &task2)
+    bool operator()(const pair<int, RelatedTasks> &task1, const pair<int,RelatedTasks> &task2)
     {
       return task1.first >= task2.first;
     }
   };
 
-  struct SetComparator // set compare for RelatedT struct
+  struct SetComparator // set compare for RelatedTasks struct
   {
-    bool operator()(RelatedT task1, RelatedT task2) const
+    bool operator()(RelatedTasks task1, RelatedTasks task2) const
     {
       return task1.task < task2.task;
     }
