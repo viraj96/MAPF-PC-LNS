@@ -400,8 +400,118 @@ void LNS::worstRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
   }
 }
 
-void LNS::shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
-  // PASS
+void LNS::shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood, int prioritySize) {
+  /*
+  Shaw removal works by using the relatedness parameter ->
+  r(tsk_i, tsk_j) = w1 * distance(tsk_i_goal, tsk_j_goal) 
+                    + w2 * (abs(tsk_i_start_time - tsk_j_start_time) + abs(tsk_i_end_time - tsk_j_end_time))
+
+  -> w1 and w2 are parameters that can be tuned
+  -> distance(tsk_i_goal, tsk_j_goal) can be the manhattan distance between the tasks
+  -> tsk_i_start_time is the begin_time of the task
+  -> tsk_i_end_time is the end_time of the task
+
+  Need to remove N-1 tasks after selecting the first task randomly. N can be user input parameter
+  */
+
+  // Clear old information about the LNS neighborhood. This should be the first thing that any removal operator must do!
+  lnsNeighborhood.patchedTasks.clear();
+  lnsNeighborhood.regretMaxHeap.clear();
+  lnsNeighborhood.commitedTasks.clear();
+  lnsNeighborhood.removedTasksPathSize.clear();
+
+  // Define the parameters here
+  int w1 = 9; // spatial relatedness parameter
+  int w2 = 3; // temporal relatedness parameter
+
+  if (potentialNeighborhood.has_value() && numOfFailures > 0) {
+    // In this case we are resetting to the old neighborhood
+    lnsNeighborhood.removedTasks = potentialNeighborhood.value();
+  } else {
+    // Randomly choose a task and remove it from the solution and add it to the neighborhood
+    int randomTask, randomTaskAgent, randomTaskPosition, randomTaskST, randomTaskET;
+    std::default_random_engine generator;
+    std::uniform_int_distribution<int> distribution(0, instance_.getTasksNum() -1);
+    while ((int)lnsNeighborhood.removedTasks.size() < 1) {
+      randomTask = distribution(generator);
+      // Check if the random task was already once selected in the shaw removal step
+      if(trackShawRandomTasks.count(randomTask))
+      {
+        continue;
+      }
+      // If not then add it to the set for next iteration check
+      trackShawRandomTasks.insert(randomTask);
+      randomTaskAgent = solution_.taskAgentMap[randomTask];
+      assert(randomTaskAgent != UNASSIGNED);
+      randomTaskPosition =
+          solution_.getLocalTaskIndex(randomTaskAgent, randomTask);
+      Conflicts conflict(randomTask, randomTaskAgent, randomTaskPosition);
+      lnsNeighborhood.removedTasks.insert(conflict);
+      PLOGD << "Shaw Removal Step -> Random Task " << randomTask << " is removed!" << endl;
+    }
+
+    // Get information about random task
+    int randomTaskLocLinear = instance_.getTaskLocations(randomTask);
+    pair<int,int> randomTaskLoc = instance_.getCoordinate(randomTaskLocLinear);
+    randomTaskST = solution_.agents[randomTaskAgent].taskPaths[randomTaskPosition].beginTime;
+    randomTaskET = solution_.agents[randomTaskAgent].taskPaths[randomTaskPosition].endTime();
+
+    // Initialize a queue to hold the related tasks and rank by relatedness
+    std::priority_queue<pair<int,RelatedTasks>, vector<pair<int,RelatedTasks>>, RelationCompare> RelatedQ; //TODO: can change to ascending or descending here
+    set<RelatedTasks, SetComparator> Expanded;
+
+    // Adding the random task first
+    RelatedTasks Random(randomTask, randomTaskAgent, randomTaskPosition, randomTaskST, randomTaskET, -1 , -1);
+    Expanded.insert(Random);
+
+    // Selected tasks at random for some limit and find their relatedness to the random task above
+    while ((int)Expanded.size() < prioritySize) {
+      int relatedTask = distribution(generator);
+      // Check that this selected task was not already in the expanded set
+      if (find_if(begin(Expanded),
+                  end(Expanded),
+                  [relatedTask](RelatedTasks expandedT) {
+                    return relatedTask == expandedT.task;
+                  }) != end(Expanded)) {
+        continue;
+      }
+
+      // Get information about related task
+      int relatedTaskAgent = solution_.taskAgentMap[relatedTask];
+      assert(relatedTaskAgent != UNASSIGNED);
+      int relatedTaskPosition =
+          solution_.getLocalTaskIndex(relatedTaskAgent, relatedTask);
+
+      // Compute the manhattan distance
+      int relatedTaskLocLinear = instance_.getTaskLocations(relatedTask);
+      pair<int,int> relatedTaskLoc = instance_.getCoordinate(relatedTaskLocLinear);
+      int relatedManhattanDistance = instance_.getManhattanDistance(randomTaskLoc, relatedTaskLoc);
+
+      // Get the temporal values
+      int relatedTaskST = solution_.agents[relatedTaskAgent].taskPaths[relatedTaskPosition].beginTime;
+      int relatedTaskET = solution_.agents[relatedTaskAgent].taskPaths[relatedTaskPosition].endTime();
+
+      // Compute the relatedness 
+      int relatedness = w1 * relatedManhattanDistance + w2 * (abs(randomTaskST -relatedTaskST) + abs(randomTaskET - relatedTaskET));
+
+      // Store information
+      RelatedTasks NewTask(relatedTask, relatedTaskAgent, relatedTaskPosition, relatedTaskST, relatedTaskET, relatedManhattanDistance, relatedness);
+      Expanded.insert(NewTask);
+      pair<int,RelatedTasks> related_join = make_pair(relatedness, NewTask);
+      RelatedQ.push(related_join);
+    }
+
+    // Now get the related tasks in decreasing order of relatedness
+    while((int)lnsNeighborhood.removedTasks.size() < neighborSize_)
+    {
+      pair<int,RelatedTasks> related_task = RelatedQ.top();
+      PLOGD << "Shaw Removal Step -> Related Task " << related_task.second.task << " is removed!" << endl;
+      RelatedQ.pop();
+      // Add the related task to the neighborhood
+      Conflicts conflict(related_task.second.task, related_task.second.agent, related_task.second.task_position);
+      lnsNeighborhood.removedTasks.insert(conflict);
+    }
+  }
 }
 
 void LNS::alnsRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
@@ -611,7 +721,7 @@ bool LNS::run() {
     } else if (destroyHeuristic == "random") {
       randomRemoval(std::make_optional(potentialNeighborhood));
     } else if (destroyHeuristic == "shaw") {
-      shawRemoval(std::make_optional(potentialNeighborhood));
+      shawRemoval(std::make_optional(potentialNeighborhood), neighborSize_ * 3);
     } else if (destroyHeuristic == "ALNS") {
       alnsRemoval(std::make_optional(potentialNeighborhood));
     } else {
