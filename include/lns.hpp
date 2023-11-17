@@ -6,6 +6,13 @@
 #include "constrainttable.hpp"
 #include "mlastar.hpp"
 
+enum DestroyHeuristic {
+  randomRemoval = 0,
+  worstRemoval = 1,
+  conflictRemoval = 2,
+  shawRemoval = 3
+};
+
 struct Agent {
   int id;
   Path path;
@@ -325,11 +332,51 @@ class Solution {
   }
 };
 
+// Hold information to extract related tasks for shaw removal operator
+struct RelatedTasks {
+  int task, agent, taskPosition;
+  int startTime, endTime, distance;
+  // Lower value of relatedness means that the tasks are more related!
+  double relatedness;
+
+  RelatedTasks(int task, int agent, int taskPosition, int startTime,
+               int endTime, int distance, int relation)
+      : task(task),
+        agent(agent),
+        taskPosition(taskPosition),
+        startTime(startTime),
+        endTime(endTime),
+        distance(distance),
+        relatedness(relation) {}
+
+  // Priority queue for relatedness
+  struct RelationCompare {
+    // Mininimum heap comparator
+    bool operator()(const pair<int, RelatedTasks>& task1,
+                    const pair<int, RelatedTasks>& task2) {
+      return task1.first >= task2.first;
+    }
+  };
+
+  // Comparator for custom Related Tasks struct
+  struct RelatedTasksComparator {
+    bool operator()(RelatedTasks task1, RelatedTasks task2) const {
+      return task1.task < task2.task;
+    }
+  };
+};
+
+using pqRelatedTasks = std::priority_queue<pair<int, RelatedTasks>,
+                                           vector<pair<int, RelatedTasks>>,
+                                           RelatedTasks::RelationCompare>;
+
 struct ALNS {
 
   // Parameter values copied from 'https://d-nb.info/1072464683/34'
-  int alnsCounter = 0, alnsCounterThreshold = 100, numDestroyHeuristics = 3,
+  int alnsCounter = 0, alnsCounterThreshold = 100,
+      numDestroyHeuristics = (int)sizeof(DestroyHeuristic),
       recentDestroyHeuristic = -1;
+  vector<int> destroyHeuristicHistory;
   double r1 = 65, r2 = 45, r3 = 25;
   double delta1 = r1 + r2 + r3, delta2 = r2 + r3, delta3 = r3;
   double reactionFactor = 0.35;
@@ -351,23 +398,24 @@ class LNS {
   int numOfIterations_;
 
  protected:
+  ALNS adaptiveLNS_;
   int neighborSize_;
+  Neighbor lnsNeighborhood_;
   const Instance& instance_;
+  vector<Path> initialPaths_;
   FeasibleSolution incumbentSolution_;
   Solution solution_, previousSolution_;
-  double timeLimit_, initialSolutionRuntime_ = 0;
+  double timeLimit_, initialSolutionRuntime_ = 0, temperature_ = 100,
+                     coolingCoefficient_ = 0.99975,
+                     heatingCoefficient_ = 1.00025, tolerance_ = 5,
+                     shawDistanceWeight_ = 9, shawTemporalWeight_ = 3;
   high_resolution_clock::time_point plannerStartTime_;
 
  public:
-  double runtime = 0, temperature = 100, coolingCoefficient = 0.99975,
-         heatingCoefficient = 1.00025, tolerance = 5;
-  Neighbor lnsNeighborhood;
-  vector<Path> initialPaths;
-  string initialSolutionStrategy, destroyHeuristic, acceptanceCriteria;
-  list<IterationStats> iterationStats;
+  double runtime = 0;
   int numOfFailures = 0, sumOfCosts = 0;
-  set<int> trackShawRandomTasks;
-  ALNS adaptiveLNS;
+  list<IterationStats> iterationStats;
+  string initialSolutionStrategy, destroyHeuristic, acceptanceCriteria;
 
   LNS(int numOfIterations, const Instance& instance, int neighborSize,
       double timeLimit, string initialStrategy, string destroyHeuristic,
@@ -414,6 +462,7 @@ class LNS {
   void insertBestRegretTask(TaskRegretPacket bestRegretPacket);
 
   Solution getSolution() { return solution_; }
+  ALNS getAdaptiveLNS() { return adaptiveLNS_; }
 
   bool extractFeasibleSolution();
   FeasibleSolution getFeasibleSolution() { return incumbentSolution_; }
@@ -421,7 +470,8 @@ class LNS {
   void randomRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
   void worstRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
   void conflictRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
-  void shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood, int prioritySize);
+  void shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood,
+                   int prioritySize);
   void alnsRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
 
   bool simulatedAnnealing();
@@ -445,39 +495,3 @@ class LNS {
     }
   }
 };
-  // structure to hold the related task information easily
-  struct RelatedTasks
-  {
-    int task;
-    int agent;
-    int task_position;
-    int start_time;
-    int end_time;
-    int manhattan_distance;
-    int relatedness;
-
-    RelatedTasks(int task, int agent, int taskPosition, int start, int end, int dist, int relation)
-        : task(task),
-          agent(agent),
-          task_position(taskPosition),
-          start_time(start),
-          end_time(end),
-          manhattan_distance(dist),
-          relatedness(relation){}
-  };
-
-  struct RelationCompare // priority queue for relatedness
-  {
-    bool operator()(const pair<int, RelatedTasks> &task1, const pair<int,RelatedTasks> &task2)
-    {
-      return task1.first >= task2.first;
-    }
-  };
-
-  struct SetComparator // set compare for RelatedTasks struct
-  {
-    bool operator()(RelatedTasks task1, RelatedTasks task2) const
-    {
-      return task1.task < task2.task;
-    }
-  };

@@ -73,9 +73,10 @@ int main(int argc, char** argv) {
 
   string destroyHeuristic = vm["destroyHeuristic"].as<string>();
   if (destroyHeuristic != "conflict" && destroyHeuristic != "worst" &&
-      destroyHeuristic != "random" && destroyHeuristic != "shaw") {
+      destroyHeuristic != "random" && destroyHeuristic != "shaw" &&
+      destroyHeuristic != "alns") {
     PLOGE << "The destroy heuristic provided is not supported! Please choose "
-             "from 'conflict', 'worst', 'random', 'shaw' and 'ALNS' removal "
+             "from 'conflict', 'worst', 'random', 'shaw' and 'alns' removal "
              "operators\n";
     return 1;
   }
@@ -91,7 +92,7 @@ int main(int argc, char** argv) {
 
   // Need to store the seed for debugging
   auto srandSeed = (int)time(nullptr);
-  // srandSeed = 1699835454;
+  // srandSeed = 1700258898;
   srand(srandSeed);
 
   Instance instance(vm["map"].as<string>(), vm["agents"].as<string>(),
@@ -151,7 +152,39 @@ int main(int argc, char** argv) {
     firstFeasibleSolutionTime = INT_MAX;
   }
 
-  std::cout << "MAPF-PC-LNS: "
+  // Compute the results from ALNS
+  if (destroyHeuristic == "alns") {
+    ALNS adaptiveLNS = lnsInstance.getAdaptiveLNS();
+    vector<int> destroyHeuristicFrequency((int)sizeof(DestroyHeuristic), 0);
+    std::cout << "Size of destroy heuristic history -> "
+              << adaptiveLNS.destroyHeuristicHistory.size() << std::endl;
+    for (int destroyHeuristicUsed : adaptiveLNS.destroyHeuristicHistory) {
+      destroyHeuristicFrequency[destroyHeuristicUsed] += 1;
+    }
+    std::cout << "Adaptive LNS performance: \n\t";
+    for (int i = 0; i < (int)sizeof(DestroyHeuristic); i++) {
+      double averageUsed = (double)destroyHeuristicFrequency[i] /
+                           (int)adaptiveLNS.destroyHeuristicHistory.size();
+      switch (i) {
+        case DestroyHeuristic::randomRemoval:
+          std::cout << "Random Removal: " << averageUsed << "\n\t";
+          break;
+        case DestroyHeuristic::worstRemoval:
+          std::cout << "Worst Removal: " << averageUsed << "\n\t";
+          break;
+        case DestroyHeuristic::conflictRemoval:
+          std::cout << "Conflict Removal: " << averageUsed << "\n\t";
+          break;
+        case DestroyHeuristic::shawRemoval:
+          std::cout << "Shaw Removal: " << averageUsed << "\n\t";
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  std::cout << "\nMAPF-PC-LNS: "
             << "\n\tRuntime = " << lnsInstance.runtime
             << "\n\tIterations = " << lnsInstance.iterationStats.size()
             << "\n\tFirst Feasible Solution Runtime = "
