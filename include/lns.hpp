@@ -421,6 +421,8 @@ class LNS {
       double timeLimit, string initialStrategy, string destroyHeuristic,
       string acceptanceCriteria);
 
+  set<pair<int,int>> selectedAgentPos;
+  map<int, vector<tuple<int,int,int>>> manAgentPos;
   inline Instance getInstance() { return instance_; }
 
   bool run();
@@ -494,4 +496,5 @@ class LNS {
       }
     }
   }
+  void computeProximityRegretChoices(int conflict_task);
 };

@@ -2198,3 +2198,73 @@ Solution& Solution::operator=(const Solution& other) {
 
   return *this;
 }
+
+void LNS::computeProximityRegretChoices(int conflict_task)
+{
+  /*
+    A method for pruning agents that are not near the conflict task. 
+    As the regret estimates the service time for each agent with repect to 
+    the conflict task, it is intuitive to choose agents that are near the 
+    conflict task since they are bound to have better times.
+
+    1. Get conflict task
+    2. Get the precedence constraint time, if any
+    3. Loop over all agents
+    4. Loop over all agent paths
+    5. Once precedence constraint time is reached, check the manhattan
+      distance for each timestamp
+    6. If manhattan distance is below a threshold then save the agent
+      and task position
+    Note - Logically, using regret we should be able to place the conflict task at this
+    task position. If its the last task position, we may have cases where we can check the one after as well
+    7. Finally for each conflict task report the agent<>taskPos pair set (unique only)
+  */
+
+  selectedAgentPos.clear();
+  manAgentPos.clear();
+  int ct_loc_linear = instance_.getTaskLocations(conflict_task);
+  pair<int,int> ct_loc = instance_.getCoordinate(ct_loc_linear);
+  int parent_time = 0;
+  if(!instance_.getTaskDependencies()[conflict_task].empty()){
+    vector<int> anc = instance_.getTaskDependencies()[conflict_task];
+    for(auto pred: anc)
+    {
+      int pred_agent = previousSolution_.taskAgentMap[pred];
+      int pos = previousSolution_.getLocalTaskIndex(pred_agent, pred);
+      int curr_time = previousSolution_.agents[pred_agent].taskPaths[pos].endTime();
+      if(parent_time < curr_time)
+      {
+        parent_time = curr_time;
+      }
+    }
+  }
+  for(int a = 0; a < instance_.getAgentNum(); a++)
+  {
+    for(int p = 0; p <(int)previousSolution_.agents[a].taskPaths.size(); p++)
+    {
+      int time = previousSolution_.agents[a].taskPaths[p].endTime();
+      if(time < parent_time)
+      {
+        continue;
+      }
+      else
+      {
+        for(auto traj: previousSolution_.agents[a].taskPaths[p].path)
+        {
+          int loc = traj.location;
+          pair<int,int> coordinates = instance_.getCoordinate(loc);
+          int manhattan = instance_.getManhattanDistance(ct_loc, coordinates);
+          // PLOGD << "ct " << conflict_task << " agent " <<a<<" pos "<<p<<" dist " <<manhattan <<endl;
+          if(manhattan <= 16)
+          {
+            selectedAgentPos.insert(make_pair(a, p));
+            manAgentPos[conflict_task].push_back(tuple(manhattan, a, p));
+            break;
+          }
+        }
+      }
+    }
+  }
+  PLOGD <<"size of set " << (int)selectedAgentPos.size()<<endl;
+
+}
