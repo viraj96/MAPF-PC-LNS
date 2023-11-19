@@ -12,13 +12,15 @@ class Instance {
 
   vector<vector<int>> heuristics_;
   int numOfAgents_{}, numOfTasks_{};
-  vector<int> taskLocations_, startLocations_, inputPlanningOrder_;
+  vector<int> endPoints_, taskLocations_, startLocations_, inputPlanningOrder_;
   // Maps given task to all its predecessors as given in the input
   map<int, vector<int>> taskDependencies_;
   vector<vector<int>> ancestors_, successors_;
   vector<pair<int, int>> inputPrecedenceConstraints_;
 
   bool loadMap();
+  bool loadKivaMap();
+  bool loadKivaTasks();
   bool loadAgentsAndTasks();
   void saveMap() const;
   void printMap() const;

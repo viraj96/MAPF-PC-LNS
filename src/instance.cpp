@@ -1,6 +1,8 @@
 #include "instance.hpp"
 #include <boost/token_functions.hpp>
 #include <boost/tokenizer.hpp>
+#include <fstream>
+#include <sstream>
 #include "utils.hpp"
 
 Instance::Instance(const string& mapFname, const string& agentTaskFname,
@@ -9,7 +11,13 @@ Instance::Instance(const string& mapFname, const string& agentTaskFname,
       agentTaskFname_(agentTaskFname),
       numOfAgents_(numOfAgents),
       numOfTasks_(numOfTasks) {
-  bool succ = loadMap();
+  bool succ = false;
+  if (mapFname_.find("kiva") != string::npos) {
+    // We are going to work with KIVA instances
+    succ = loadKivaMap();
+  } else {
+    succ = loadMap();
+  }
   if (!succ) {
     PLOGE << "Map file " << mapFname << " not found.\n";
     exit(-1);
@@ -17,12 +25,143 @@ Instance::Instance(const string& mapFname, const string& agentTaskFname,
 
   ancestors_.resize(numOfTasks_);
   successors_.resize(numOfTasks_);
-  succ = loadAgentsAndTasks();
+
+  if (mapFname_.find("kiva") != string::npos) {
+    // We are going to load KIVA tasks with implicit precedence constraints
+    succ = loadKivaTasks();
+  } else {
+    succ = loadAgentsAndTasks();
+  }
   if (!succ) {
     PLOGE << "Agent and task file " << agentTaskFname << " not found.\n";
     exit(-1);
   }
   preComputeHeuristics();
+}
+
+bool Instance::loadKivaMap() {
+  using namespace std;
+  using namespace boost;
+
+  ifstream file(mapFname_.c_str());
+  if (!file.is_open()) {
+    return false;
+  }
+
+  string line;
+  tokenizer<char_separator<char>>::iterator begin;
+
+  getline(file, line);
+  char_separator<char> sep(",");
+  tokenizer<char_separator<char>> tokenizer(line, sep);
+  begin = tokenizer.begin();
+  numOfRows = atoi((*begin).c_str()) + 2;  // Read the number of rows
+  begin++;
+  numOfCols = atoi((*begin).c_str()) + 2;  // Read the number of columns
+
+  getline(file, line);  // Workpoint number
+  getline(file, line);  // Number of agents
+  getline(file, line);  // Maximum time
+
+  // Initialize the agent start locations
+  int agentNum = 0, endPointNum = 0;
+  startLocations_.resize(numOfAgents_);
+
+  mapSize = numOfCols * numOfRows;
+  map_.resize(mapSize);
+  for (int i = 1; i < numOfRows - 1; i++) {
+    getline(file, line);
+    for (int j = 1; j < numOfCols - 1; j++) {
+      map_[linearizeCoordinate(i, j)] = (line[j - 1] == '@');
+      if (line[j] == 'r') {
+        // This is a robot spawn location
+        startLocations_[agentNum] = linearizeCoordinate(i, j);
+        assert(!isObstacle(startLocations_[agentNum]));
+        agentNum++;
+      }
+      if (line[j] == 'e') {
+        // This is a task spawn location
+        endPoints_.push_back(linearizeCoordinate(i, j));
+        assert(!isObstacle(endPoints_[endPointNum]));
+        endPointNum++;
+      }
+    }
+  }
+
+  for (int i = 0; i < numOfRows; i++) {
+    map_[i * numOfCols] = false;
+    map_[i * numOfCols + numOfCols - 1] = false;
+  }
+  for (int j = 1; j < numOfCols - 1; j++) {
+    map_[j] = false;
+    map_[mapSize - numOfCols + j] = false;
+  }
+
+  assert(agentNum == numOfAgents_);
+  file.close();
+  return true;
+}
+
+bool Instance::loadKivaTasks() {
+  using namespace std;
+  using namespace boost;
+
+  ifstream file(agentTaskFname_.c_str());
+  if (!file.is_open()) {
+    return false;
+  }
+
+  string line;
+  int taskNum;
+  stringstream stringLine;
+  getline(file, line);
+  stringLine << line;
+  stringLine >> taskNum;
+
+  assert(taskNum * 2 == numOfTasks_);
+  // Initialize the task locations
+  taskLocations_.resize(numOfTasks_);
+  vector<pair<int, int>> temporalDependencies;
+
+  for (int i = 0; i < numOfTasks_; i += 2) {
+    int releaseTime, startTask, goalTask, timeOfStartTask, timeOfGoalTask;
+    getline(file, line);
+    stringLine.clear();
+    stringLine << line;
+    stringLine >> releaseTime >> startTask >> goalTask >> timeOfStartTask >>
+        timeOfGoalTask;
+
+    startTask %= (int)endPoints_.size();
+    goalTask %= (int)endPoints_.size();
+    assert(startTask < (int)endPoints_.size());
+    assert(goalTask < (int)endPoints_.size());
+
+    taskLocations_[i] = endPoints_[startTask];
+    taskLocations_[i + 1] = endPoints_[goalTask];
+    assert(!isObstacle(taskLocations_[i]));
+    assert(!isObstacle(taskLocations_[i + 1]));
+
+    temporalDependencies.emplace_back(i, i + 1);
+  }
+
+  for (pair<int, int> dependency : temporalDependencies) {
+    int i, j;
+    tie(i, j) = dependency;
+    taskDependencies_[j].push_back(i);
+    ancestors_[j].push_back(i);
+    successors_[i].push_back(j);
+    inputPrecedenceConstraints_.emplace_back(i, j);
+  }
+
+  PLOGD << "# Agents: " << numOfAgents_ << "\t # Tasks: " << numOfTasks_
+        << "\t # Dependencies: " << (int)temporalDependencies.size() << endl;
+
+  file.close();
+
+  assert(
+      topologicalSort(this, &inputPrecedenceConstraints_, inputPlanningOrder_));
+
+  return true;
 }
 
 bool Instance::loadMap() {
@@ -34,8 +173,6 @@ bool Instance::loadMap() {
     return false;
   }
 
-  // Using custom mapf benchmark for now.
-  // Once validated you want to move to the original mapf bechmarks
   string line;
   tokenizer<char_separator<char>>::iterator begin;
 
