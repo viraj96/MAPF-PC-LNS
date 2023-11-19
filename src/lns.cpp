@@ -27,7 +27,7 @@ LNS::LNS(int numOfIterations, const Instance& instance, int neighborSize,
 
 bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
 
-  initialPaths_.resize(instance_.getTasksNum(), Path());
+  initialPaths_.resize(instance_.getTasksNum(), AgentTaskPath());
   bool readingTaskAssignments = false, readingTaskPaths = false;
 
   string solver;
@@ -97,14 +97,14 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
         line.erase(0, pos + 1);
       }
       solution_.agents[agent].taskPaths.resize(
-          solution_.agents[agent].taskAssignments.size(), Path());
+          solution_.agents[agent].taskAssignments.size(), AgentTaskPath());
     }
     // If we are not reading the task assignments then we must be reading the task paths.
     // Eg: Agent 1
     //     6 @ 0 -> 22 -> 23 @ 2 -> 24 @ 3 -> 25 -> 26 ->
     else if (readingTaskPaths && agent > -1) {
       string token;
-      Path taskPath;
+      AgentTaskPath taskPath;
       size_t pos = 0;
       int taskIndex = -1;
       while ((pos = line.find("->")) != string::npos) {
@@ -118,7 +118,7 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
             solution_.agents[agent].taskPaths[taskIndex] = taskPath;
             initialPaths_[solution_.agents[agent].taskAssignments[taskIndex]] =
                 taskPath;
-            taskPath = Path();
+            taskPath = AgentTaskPath();
           }
           taskIndex++;
           size_t localPos = 0;
@@ -164,7 +164,7 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
         solution_.agents[agent].taskPaths[taskIndex] = taskPath;
         initialPaths_[solution_.agents[agent].taskAssignments[taskIndex]] =
             taskPath;
-        taskPath = Path();
+        taskPath = AgentTaskPath();
       }
     }
   }
@@ -206,7 +206,7 @@ bool LNS::buildGreedySolution() {
         instance_.getTaskLocations(solution_.getAgentGlobalTasks(agent));
     solution_.agents[agent].pathPlanner->setGoalLocations(taskLocations);
     solution_.agents[agent].taskPaths.resize(
-        solution_.getAgentGlobalTasks(agent).size(), Path());
+        solution_.getAgentGlobalTasks(agent).size(), AgentTaskPath());
     solution_.agents[agent].pathPlanner->computeHeuristics();
   }
 
@@ -242,7 +242,7 @@ bool LNS::buildGreedySolution() {
   }
 
   // Following the topological order we find the paths for each task
-  initialPaths_.resize(instance_.getTasksNum(), Path());
+  initialPaths_.resize(instance_.getTasksNum(), AgentTaskPath());
   for (int id : planningOrder) {
 
     int agent = solution_.getAgentWithTask(id), task = id,
@@ -810,7 +810,7 @@ bool LNS::run() {
 
     // Join the individual paths that were found for each agent
     for (int i = 0; i < instance_.getAgentNum(); i++) {
-      solution_.agents[i].path = Path();
+      solution_.agents[i].path = AgentTaskPath();
     }
     vector<int> agentsToCompute(instance_.getAgentNum());
     std::iota(agentsToCompute.begin(), agentsToCompute.end(), 0);
@@ -982,14 +982,14 @@ void LNS::prepareNextIteration() {
     lnsNeighborhood_.removedTasksPathSize.insert(
         make_pair(invalidTask.task,
                   solution_.agents[agent].taskPaths[taskPosition].size()));
-    solution_.agents[agent].taskPaths[taskPosition] = Path();
+    solution_.agents[agent].taskPaths[taskPosition] = AgentTaskPath();
   }
 
   // Marking past information about conflicting tasks
   for (int affAgent : affectedAgents) {
 
     // For an affected agent there can be multiple conflicting tasks so need to do it this way
-    solution_.agents[affAgent].path = Path();
+    solution_.agents[affAgent].path = AgentTaskPath();
     solution_.agents[affAgent].taskAssignments.erase(
         std::remove_if(solution_.agents[affAgent].taskAssignments.begin(),
                        solution_.agents[affAgent].taskAssignments.end(),
@@ -1242,7 +1242,6 @@ bool LNS::computeRegretForTask(int task, bool firstIteration) {
     lnsNeighborhood_.serviceTimesHeapMap.insert(make_pair(task, serviceTimes));
   }
 
-  // TODO: Add checks to ensure that there are atleast 2 entries in the heap!
   if ((int)serviceTimes.size() < 2) {
     // This is the case when we run out of heap i.e there are not enough options left to compute the regret for this task!
     PLOGD << "Ran out of service time options for task " << task
@@ -1560,8 +1559,8 @@ void LNS::commitAncestorTaskOf(
       int ancestorTaskPosition =
           previousSolution_.getLocalTaskIndex(ancestorTaskAgent, ancestorTask);
 
-      Path ancestorPath = previousSolution_.agents[ancestorTaskAgent]
-                              .taskPaths[ancestorTaskPosition];
+      AgentTaskPath ancestorPath = previousSolution_.agents[ancestorTaskAgent]
+                                       .taskPaths[ancestorTaskPosition];
 
       solution_.agents[ancestorTaskAgent].pathPlanner->goalLocations.insert(
           solution_.agents[ancestorTaskAgent]
@@ -1656,7 +1655,7 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
         bestRegretPacket.task);
 
     solution_.agents[bestRegretPacket.agent]
-        .taskPaths[bestRegretPacket.taskPosition] = Path();
+        .taskPaths[bestRegretPacket.taskPosition] = AgentTaskPath();
 
     precedenceConstraints.emplace_back(bestRegretPacket.task, nextTask);
 
@@ -1727,7 +1726,7 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
     solution_.agents[bestRegretPacket.agent].taskPaths.insert(
         solution_.agents[bestRegretPacket.agent].taskPaths.begin() +
             taskPosition,
-        Path());
+        AgentTaskPath());
 
     buildConstraintTable(constraintTable, bestRegretPacket.task);
     solution_.agents[bestRegretPacket.agent].taskPaths[taskPosition] =

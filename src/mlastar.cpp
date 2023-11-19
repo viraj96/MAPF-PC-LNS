@@ -1,4 +1,6 @@
 #include "mlastar.hpp"
+#include "astar.hpp"
+#include "common.hpp"
 
 void MultiLabelSpaceTimeAStar::releaseNodes() {
   openList_.clear();
@@ -45,32 +47,24 @@ void MultiLabelSpaceTimeAStar::updateFocalList() {
 
 void MultiLabelSpaceTimeAStar::updatePath(const LLNode* goal, Path& path) {
   path.path.resize(goal->gVal + 1);
-  path.timeStamps.resize(goalLocations.size(), 0);
-  path.timeStamps.back() = goal->gVal;
 
   const LLNode* current = goal;
   while (current != nullptr) {
     path[current->gVal].location = current->location;
-    if (current->parent != nullptr &&
-        current->stage != current->parent->stage) {
-      path.timeStamps[current->parent->stage] = current->gVal;
-      path[current->gVal].isGoal = true;
-    } else {
-      path[current->gVal].isGoal = false;
-    }
+    path[current->gVal].isGoal =
+        current->parent != nullptr && current->stage != current->parent->stage;
     current = current->parent;
   }
 }
 
-Path MultiLabelSpaceTimeAStar::findPathSegment(ConstraintTable& constraintTable,
-                                               int startTime, int stage,
-                                               int lb) {
+AgentTaskPath MultiLabelSpaceTimeAStar::findPathSegment(
+    ConstraintTable& constraintTable, int startTime, int stage, int lb) {
   int location = startLocation;
   if (stage != 0) {
     location = goalLocations[stage - 1];
   }
 
-  Path path;
+  AgentTaskPath path;
   path.beginTime = startTime;
   auto* start = new MultiLabelAStarNode(
       nullptr, location, 0, getHeuristic(stage, location), startTime, 0, stage);
@@ -128,7 +122,6 @@ Path MultiLabelSpaceTimeAStar::findPathSegment(ConstraintTable& constraintTable,
 
       // Setting the stage
       unsigned int stage = current->stage;
-      vector<int> timestamps = current->timeStamps;
 
       int successorGVal = current->gVal + 1;
       int successorHVal =
@@ -137,7 +130,6 @@ Path MultiLabelSpaceTimeAStar::findPathSegment(ConstraintTable& constraintTable,
       auto* next = new MultiLabelAStarNode(current, successor, successorGVal,
                                            successorHVal, nextTimestep,
                                            successorInternalConflicts, stage);
-      next->timeStamps = timestamps;
       next->secondaryKeys.push_back(-successorGVal);
       next->distanceToNext = heuristic[stage][successor];
 

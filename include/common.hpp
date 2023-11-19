@@ -76,7 +76,6 @@ struct Path {
   int endTime() const { return beginTime + (int)size() - 1; }
 
   vector<PathEntry> path;
-  vector<int> timeStamps;
 
   bool empty() const { return path.empty(); }
   size_t size() const { return path.size(); }
@@ -91,6 +90,10 @@ struct Path {
 
   Path() = default;
   Path(int size) : path(vector<PathEntry>(size)) {}
+};
+
+struct AgentTaskPath : public Path {
+  vector<int> timeStamps;
 };
 
 std::ostream& operator<<(std::ostream& os, const Path& path);

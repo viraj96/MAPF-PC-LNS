@@ -15,9 +15,9 @@ enum DestroyHeuristic {
 
 struct Agent {
   int id;
-  Path path;
-  vector<Path> taskPaths;
+  AgentTaskPath path;
   vector<int> taskAssignments;
+  vector<AgentTaskPath> taskPaths;
   vector<pair<int, int>> intraPrecedenceConstraints;
   std::shared_ptr<SingleAgentSolver> pathPlanner = nullptr;
 
@@ -316,7 +316,7 @@ class Solution {
       assert(getAgentGlobalTasks(agent).size() ==
              agents[agent].taskPaths.size());
 
-      agents[agent].path = Path();
+      agents[agent].path = AgentTaskPath();
       for (int i = 0; i < (int)getAgentGlobalTasks(agent).size(); i++) {
         if (i == 0) {
           agents[agent].path.path.push_back(agents[agent].taskPaths[i].front());
@@ -402,7 +402,7 @@ class LNS {
   int neighborSize_;
   Neighbor lnsNeighborhood_;
   const Instance& instance_;
-  vector<Path> initialPaths_;
+  vector<AgentTaskPath> initialPaths_;
   FeasibleSolution incumbentSolution_;
   Solution solution_, previousSolution_;
   double timeLimit_, initialSolutionRuntime_ = 0, temperature_ = 100,
