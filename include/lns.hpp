@@ -165,16 +165,17 @@ struct Utility {
 // We need max-heap for the regret since we want to quickly access the task whose regret would be maximum
 struct Regret {
   int task, agent, taskPosition;
-  int pathLength, agentTasksLen;
+  int pathLength, agentTasksLen, maxOptionsLeft;
   double value;
 
   Regret(int task, int agent, int taskPosition, int pathLength,
-         int agentTasksLen, double value)
+         int agentTasksLen, int maxOptionsLeft, double value)
       : task(task),
         agent(agent),
         taskPosition(taskPosition),
         pathLength(pathLength),
         agentTasksLen(agentTasksLen),
+        maxOptionsLeft(maxOptionsLeft),
         value(value) {}
 
   struct CompareRegrets {
@@ -182,7 +183,11 @@ struct Regret {
       if (lhs.value != rhs.value) {
         return lhs.value < rhs.value;
       }
-      // Now that the regret values are same we move to compare the path lengths and prefer the regret with smaller path
+      // Now that the regret values are same we move to compare the number of options left for them and prefer the regret with smaller number of options left to make it more likely that it will be picked first
+      if (lhs.maxOptionsLeft != rhs.maxOptionsLeft) {
+        return lhs.maxOptionsLeft > rhs.maxOptionsLeft;
+      }
+      // Now that the number of options left are same we move to compare the path lengths and prefer the regret with smaller path
       if (lhs.pathLength != rhs.pathLength) {
         return lhs.pathLength > rhs.pathLength;
       }

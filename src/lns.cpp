@@ -1065,6 +1065,7 @@ bool LNS::computeRegret(bool firstIteration) {
       Regret regret(conflictTask.task, bestUtility.agent,
                     bestUtility.taskPosition, bestUtility.pathLength,
                     bestUtility.agentTasksLen,
+                    (int)conflictTaskServiceTimes.size(),
                     nextBestValidUtility.value - bestUtility.value);
       lnsNeighborhood_.regretMaxHeap.push(regret);
 
@@ -1253,6 +1254,7 @@ bool LNS::computeRegretForTask(int task, bool firstIteration) {
   Utility secondBestUtility = serviceTimes.top();
   Regret regret(task, bestUtility.agent, bestUtility.taskPosition,
                 bestUtility.pathLength, bestUtility.agentTasksLen,
+                (int)serviceTimes.size(),
                 secondBestUtility.value - bestUtility.value);
   lnsNeighborhood_.regretMaxHeap.push(regret);
   return true;
