@@ -720,20 +720,22 @@ bool LNS::run() {
                               solution_.sumOfCosts, feasibleSolutionUpdated,
                               bestSolutionYet);
   set<Conflicts> oldNeighborhood;
+  // This flag is used when we exhaust the regret heap so that we can reset the neighborhood using random-removal operator and hope that next iteration can be solved better!
+  bool fallbackToRandomRemoval = false;
 
   // LNS loop
   while (runtime < timeLimit_) {
 
     // These functions populate the LNS neighborhoods' removedTask parameter
-    if (destroyHeuristic == "conflict") {
+    if (destroyHeuristic == "conflict" && !fallbackToRandomRemoval) {
       conflictRemoval(std::make_optional(potentialNeighborhood));
-    } else if (destroyHeuristic == "worst") {
+    } else if (destroyHeuristic == "worst" && !fallbackToRandomRemoval) {
       worstRemoval(std::make_optional(potentialNeighborhood));
-    } else if (destroyHeuristic == "random") {
+    } else if (destroyHeuristic == "random" || fallbackToRandomRemoval) {
       randomRemoval(std::make_optional(potentialNeighborhood));
-    } else if (destroyHeuristic == "shaw") {
+    } else if (destroyHeuristic == "shaw" && !fallbackToRandomRemoval) {
       shawRemoval(std::make_optional(potentialNeighborhood), neighborSize_ * 3);
-    } else if (destroyHeuristic == "alns") {
+    } else if (destroyHeuristic == "alns" && !fallbackToRandomRemoval) {
       alnsRemoval(std::make_optional(potentialNeighborhood));
     } else {
       static_assert(true);
@@ -769,13 +771,42 @@ bool LNS::run() {
     // Compute regret for each of the tasks that are in the conflicting set
     // Pick the best one and repeat the whole process again
     while (!lnsNeighborhood_.removedTasks.empty()) {
-      computeRegret((int)lnsNeighborhood_.removedTasks.size() -
-                        lnsNeighborhood_.additionalTasksAdded ==
-                    (int)oldNeighborhood.size());
+      bool enoughSpace =
+          computeRegret((int)lnsNeighborhood_.removedTasks.size() -
+                            lnsNeighborhood_.additionalTasksAdded ==
+                        (int)oldNeighborhood.size());
+      if (!enoughSpace) {
+        // We could not compute enough regrets for each task so we need to try and reset the solution and try potentially with a different neighborhood!
+        break;
+      }
+      assert(!lnsNeighborhood_.regretMaxHeap.empty());
       Regret bestRegret = lnsNeighborhood_.regretMaxHeap.top();
       // Use the best regret task and insert it in its correct location
       commitBestRegretTask(bestRegret);
     }
+
+    IterationQuality quality = IterationQuality::none;
+
+    // If we could not successfully compute the regrets and commit to all the tasks in the neighborhood then we need to reset this neighborhood using random-removal operator and hope that next time it can be solved!
+    if (!lnsNeighborhood_.removedTasks.empty()) {
+      // Reject whatever we done till now
+      fallbackToRandomRemoval = true;
+      solution_ = previousSolution_;
+      potentialNeighborhood = oldNeighborhood;
+      feasibleSolutionUpdated = false;
+      // Set the number of failures to 0 so that the destroy heuristic and start fresh again!
+      numOfFailures = 0;
+      quality = IterationQuality::none;
+      runtime = ((fsec)(Time::now() - plannerStartTime_)).count();
+      iterationStats.emplace_back(runtime, "LNS", instance_.getAgentNum(),
+                                  instance_.getTasksNum(), solution_.sumOfCosts,
+                                  feasibleSolutionUpdated, quality);
+      // Skip everything after this statement
+      PLOGD << "Going to fallback to random removal!\n";
+      continue;
+    }
+
+    fallbackToRandomRemoval = false;
 
     // Join the individual paths that were found for each agent
     for (int i = 0; i < instance_.getAgentNum(); i++) {
@@ -808,8 +839,6 @@ bool LNS::run() {
           << (int)oldNeighborhood.size() << endl;
     PLOGD << "Number of conflicts in new solution: "
           << potentialNeighborhood.size() << endl;
-
-    IterationQuality quality = IterationQuality::none;
 
     if (!valid) {
       // Solution was not valid as we found some conflicts!
@@ -1008,7 +1037,7 @@ void LNS::prepareNextIteration() {
   }
 }
 
-void LNS::computeRegret(bool firstIteration) {
+bool LNS::computeRegret(bool firstIteration) {
   lnsNeighborhood_.regretMaxHeap.clear();
   for (Conflicts conflictTask : lnsNeighborhood_.removedTasks) {
     // If we rejected the last iteration solution, then we are starting again. In the first loop of this iteration we can reuse the computation we did in the first loop of the last iteration. Rest would need to be computed again.
@@ -1018,22 +1047,17 @@ void LNS::computeRegret(bool firstIteration) {
           conflictTaskServiceTimes =
               lnsNeighborhood_.serviceTimesHeapMap[conflictTask.task];
 
-      std::cout << "Num Failures = " << numOfFailures << std::endl;
-      auto conflictTaskServiceTimesCopy = conflictTaskServiceTimes;
-      std::cout << "Printing service times heap map!\n";
-      while (!conflictTaskServiceTimesCopy.empty()) {
-        auto ct = conflictTaskServiceTimesCopy.top();
-        std::cout << "Task = " << conflictTask.task << ", Agent = " << ct.agent
-                  << ", Task Position = " << ct.taskPosition
-                  << ",  Path Length = " << ct.pathLength
-                  << ", Value = " << ct.value << std::endl;
-        conflictTaskServiceTimesCopy.pop();
-      }
-
       int nextValidUtilityCounter = numOfFailures;
       while (nextValidUtilityCounter > 0) {
         conflictTaskServiceTimes.pop();
         nextValidUtilityCounter--;
+      }
+      if ((int)conflictTaskServiceTimes.size() < 2) {
+        // This is the case when we exhaust the heap i.e there are no more options left to compute the regret for this task
+        PLOGD << "Ran out of service time options for task "
+              << conflictTask.task
+              << " inside the cached version of compute regret function\n";
+        return false;
       }
       Utility bestUtility = conflictTaskServiceTimes.top();
       conflictTaskServiceTimes.pop();
@@ -1045,22 +1069,17 @@ void LNS::computeRegret(bool firstIteration) {
       lnsNeighborhood_.regretMaxHeap.push(regret);
 
     } else {
-      computeRegretForTask(conflictTask.task, firstIteration);
+      bool enoughSpace =
+          computeRegretForTask(conflictTask.task, firstIteration);
+      if (!enoughSpace) {
+        return false;
+      }
     }
   }
-  std::cout << "Printing regret max heap now!!\n";
-  auto regretMaxHeapCopy = lnsNeighborhood_.regretMaxHeap;
-  while (!regretMaxHeapCopy.empty()) {
-    auto reg = regretMaxHeapCopy.top();
-    std::cout << "Task = " << reg.task << ", Agent = " << reg.agent
-              << ", Task Position = " << reg.taskPosition
-              << ",  Path Length = " << reg.pathLength
-              << ", Value = " << reg.value << std::endl;
-    regretMaxHeapCopy.pop();
-  }
+  return true;
 }
 
-void LNS::computeRegretForTask(int task, bool firstIteration) {
+bool LNS::computeRegretForTask(int task, bool firstIteration) {
   pairing_heap<Utility, compare<Utility::CompareUtilities>> serviceTimes;
 
   // The task has to start after the earliest time step but needs to finish before the latest time step. However we cannot give any guarantee on the latest timestep so we only work with the earliest timestep
@@ -1224,6 +1243,12 @@ void LNS::computeRegretForTask(int task, bool firstIteration) {
   }
 
   // TODO: Add checks to ensure that there are atleast 2 entries in the heap!
+  if ((int)serviceTimes.size() < 2) {
+    // This is the case when we run out of heap i.e there are not enough options left to compute the regret for this task!
+    PLOGD << "Ran out of service time options for task " << task
+          << " inside the regular compute regret function\n";
+    return false;
+  }
   Utility bestUtility = serviceTimes.top();
   serviceTimes.pop();
   Utility secondBestUtility = serviceTimes.top();
@@ -1231,6 +1256,7 @@ void LNS::computeRegretForTask(int task, bool firstIteration) {
                 bestUtility.pathLength, bestUtility.agentTasksLen,
                 secondBestUtility.value - bestUtility.value);
   lnsNeighborhood_.regretMaxHeap.push(regret);
+  return true;
 }
 
 void LNS::computeRegretForTaskWithAgent(

@@ -445,8 +445,8 @@ class LNS {
   int extractOldLocalTaskIndex(int task, vector<int> taskQueue);
   set<int> reachableSet(int source, vector<vector<int>> edgeList);
 
-  void computeRegret(bool firstIteration);
-  void computeRegretForTask(int task, bool firstIteration);
+  bool computeRegret(bool firstIteration);
+  bool computeRegretForTask(int task, bool firstIteration);
   void computeRegretForTaskWithAgent(
       TaskRegretPacket regretPacket, vector<int>* taskAssignments,
       vector<Path>* taskPaths, vector<pair<int, int>>* precedenceConstraints,
