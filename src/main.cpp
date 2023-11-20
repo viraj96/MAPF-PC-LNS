@@ -48,6 +48,9 @@ int main(int argc, char** argv) {
   desc.add_options()("genReport,g", po::value<bool>()->default_value(false),
                      "Whether to generate the report file that can be fed to "
                      "CBS-PC for verificattion");
+  desc.add_options()("regretType,r",
+                     po::value<string>()->default_value("absolute"),
+                     "Type of regret metric to use i.e relative or absolute");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -90,6 +93,13 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  string regretType = vm["regretType"].as<string>();
+  if (regretType != "absolute" && regretType != "relative") {
+    PLOGE << "The regret type provided is not supported! Please choose from "
+             "'absolute' and 'relative' regret\n";
+    return 1;
+  }
+
   // Need to store the seed for debugging
   auto srandSeed = (int)time(nullptr);
   // srandSeed = 1700258898;
@@ -118,10 +128,11 @@ int main(int argc, char** argv) {
     }
   }
 
-  LNS lnsInstance =
-      LNS(vm["maxIterations"].as<int>(), instance, vm["neighborSize"].as<int>(),
-          vm["cutoffTime"].as<double>(), initialSolutionStrategy,
-          destroyHeuristic, acceptanceCriteria);
+  LNSParams parameters(vm["neighborSize"].as<int>(),
+                       vm["cutoffTime"].as<double>(), 100, 0.99975, 1.00025, 5,
+                       9, 3, initialSolutionStrategy, destroyHeuristic,
+                       acceptanceCriteria, regretType);
+  LNS lnsInstance = LNS(vm["maxIterations"].as<int>(), instance, parameters);
   bool success = lnsInstance.run();
 
   FeasibleSolution anytimeSolution = lnsInstance.getFeasibleSolution();

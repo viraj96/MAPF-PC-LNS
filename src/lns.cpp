@@ -3,6 +3,7 @@
 #include <boost/process.hpp>
 #include <boost/process/pipe.hpp>
 #include <cmath>
+#include <filesystem>
 #include <numeric>
 #include <optional>
 #include <random>
@@ -10,19 +11,25 @@
 #include "common.hpp"
 #include "utils.hpp"
 
-LNS::LNS(int numOfIterations, const Instance& instance, int neighborSize,
-         double timeLimit, string initialStrategy, string destroyHeuristic,
-         string acceptanceCriteria)
+LNS::LNS(int numOfIterations, const Instance& instance,
+         const LNSParams& parameters)
     : numOfIterations_(numOfIterations),
-      neighborSize_(neighborSize),
       instance_(instance),
       solution_(instance),
-      previousSolution_(instance),
-      timeLimit_(timeLimit),
-      initialSolutionStrategy(std::move(initialStrategy)),
-      destroyHeuristic(std::move(destroyHeuristic)),
-      acceptanceCriteria(std::move(acceptanceCriteria)) {
+      previousSolution_(instance) {
   plannerStartTime_ = Time::now();
+  neighborSize_ = parameters.neighborhoodSize;
+  timeLimit_ = parameters.timeLimit;
+  temperature_ = parameters.temperature;
+  coolingCoefficient_ = parameters.coolingCoefficient;
+  heatingCoefficient_ = parameters.heatingCoefficient;
+  tolerance_ = parameters.tolerance;
+  shawDistanceWeight_ = parameters.shawDistanceWeight;
+  shawTemporalWeight_ = parameters.shawTemporalWeight;
+  initialSolutionStrategy = parameters.initialSolutionStrategy;
+  destroyHeuristic = parameters.destroyHeuristic;
+  acceptanceCriteria = parameters.acceptanceCriteria;
+  regretType = parameters.regretType;
 }
 
 bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
@@ -296,7 +303,7 @@ bool LNS::extractFeasibleSolution() {
       if (!solution_.agents[agent].taskAssignments.empty()) {
         incumbentSolution_.agentPaths[agent] = solution_.agents[agent].path;
       } else {
-        incumbentSolution_.agentPaths[agent] = Path();
+        incumbentSolution_.agentPaths[agent] = AgentTaskPath();
       }
     }
     return true;
@@ -1062,11 +1069,16 @@ bool LNS::computeRegret(bool firstIteration) {
       Utility bestUtility = conflictTaskServiceTimes.top();
       conflictTaskServiceTimes.pop();
       Utility nextBestValidUtility = conflictTaskServiceTimes.top();
+      double value = 0;
+      if (regretType == "absolute") {
+        value = nextBestValidUtility.value - bestUtility.value;
+      } else {
+        value = (nextBestValidUtility.value + 1) / (bestUtility.value + 1);
+      }
       Regret regret(conflictTask.task, bestUtility.agent,
                     bestUtility.taskPosition, bestUtility.pathLength,
                     bestUtility.agentTasksLen,
-                    (int)conflictTaskServiceTimes.size(),
-                    nextBestValidUtility.value - bestUtility.value);
+                    (int)conflictTaskServiceTimes.size(), value);
       lnsNeighborhood_.regretMaxHeap.push(regret);
 
     } else {
@@ -1116,7 +1128,7 @@ bool LNS::computeRegretForTask(int task, bool firstIteration) {
     }
 
     // Gather the paths of the tasks that need to be done before this task
-    vector<Path> temporaryTaskPaths;
+    vector<AgentTaskPath> temporaryTaskPaths;
     temporaryTaskPaths.resize(instance_.getTasksNum());
     // Gather the corresponding task paths and stitch them together
     for (int i = 0; i < (int)temporaryTaskAssignments.size(); i++) {
@@ -1127,8 +1139,9 @@ bool LNS::computeRegretForTask(int task, bool firstIteration) {
         assert(temporaryTaskAgent != UNASSIGNED);
         int temporaryTaskLocalIndex = previousSolution_.getLocalTaskIndex(
             temporaryTaskAgent, temporaryTask);
-        Path temporaryTaskPath = previousSolution_.agents[temporaryTaskAgent]
-                                     .taskPaths[temporaryTaskLocalIndex];
+        AgentTaskPath temporaryTaskPath =
+            previousSolution_.agents[temporaryTaskAgent]
+                .taskPaths[temporaryTaskLocalIndex];
         // Fix the begin time such that this task starts when the previous task ends
         if (i != 0) {
           temporaryTaskPath.beginTime =
@@ -1147,8 +1160,9 @@ bool LNS::computeRegretForTask(int task, bool firstIteration) {
           assert(temporaryTaskAgent != UNASSIGNED);
           int temporaryTaskLocalIndex = previousSolution_.getLocalTaskIndex(
               temporaryTaskAgent, temporaryTask);
-          Path temporaryTaskPath = previousSolution_.agents[temporaryTaskAgent]
-                                       .taskPaths[temporaryTaskLocalIndex];
+          AgentTaskPath temporaryTaskPath =
+              previousSolution_.agents[temporaryTaskAgent]
+                  .taskPaths[temporaryTaskLocalIndex];
           temporaryTaskPath.beginTime =
               temporaryTaskPaths[temporaryTaskAssignments[i - 1]].endTime();
           temporaryTaskPaths[temporaryTask] = temporaryTaskPath;
@@ -1157,8 +1171,9 @@ bool LNS::computeRegretForTask(int task, bool firstIteration) {
           assert(temporaryTaskAgent != UNASSIGNED);
           int temporaryTaskLocalIndex =
               solution_.getLocalTaskIndex(temporaryTaskAgent, temporaryTask);
-          Path temporaryTaskPath = solution_.agents[temporaryTaskAgent]
-                                       .taskPaths[temporaryTaskLocalIndex];
+          AgentTaskPath temporaryTaskPath =
+              solution_.agents[temporaryTaskAgent]
+                  .taskPaths[temporaryTaskLocalIndex];
           // Fix the begin time such that this task starts when the previous task ends
           if (i != 0) {
             temporaryTaskPath.beginTime =
@@ -1183,8 +1198,9 @@ bool LNS::computeRegretForTask(int task, bool firstIteration) {
           assert(temporaryTaskAgent != UNASSIGNED);
           int temporaryTaskLocalIndex = previousSolution_.getLocalTaskIndex(
               temporaryTaskAgent, ancestorTask);
-          Path temporaryTaskPath = previousSolution_.agents[temporaryTaskAgent]
-                                       .taskPaths[temporaryTaskLocalIndex];
+          AgentTaskPath temporaryTaskPath =
+              previousSolution_.agents[temporaryTaskAgent]
+                  .taskPaths[temporaryTaskLocalIndex];
           // TODO: Should we need to fix the begin times of these paths?
           temporaryTaskPaths[ancestorTask] = temporaryTaskPath;
           agentsNewlyAddedTasksBelongTo.insert(temporaryTaskAgent);
@@ -1197,7 +1213,7 @@ bool LNS::computeRegretForTask(int task, bool firstIteration) {
               lnsNeighborhood_.patchedTasks.count(ancestorTask) > 0) {
             int temporaryTaskLocalIndex = previousSolution_.getLocalTaskIndex(
                 temporaryTaskAgent, ancestorTask);
-            Path temporaryTaskPath =
+            AgentTaskPath temporaryTaskPath =
                 previousSolution_.agents[temporaryTaskAgent]
                     .taskPaths[temporaryTaskLocalIndex];
             // TODO: Should we need to fix the begin times of these paths?
@@ -1205,8 +1221,9 @@ bool LNS::computeRegretForTask(int task, bool firstIteration) {
           } else {
             int temporaryTaskLocalIndex =
                 solution_.getLocalTaskIndex(temporaryTaskAgent, ancestorTask);
-            Path temporaryTaskPath = solution_.agents[temporaryTaskAgent]
-                                         .taskPaths[temporaryTaskLocalIndex];
+            AgentTaskPath temporaryTaskPath =
+                solution_.agents[temporaryTaskAgent]
+                    .taskPaths[temporaryTaskLocalIndex];
             // TODO: Should we need to fix the begin times of these paths?
             temporaryTaskPaths[ancestorTask] = temporaryTaskPath;
           }
@@ -1252,17 +1269,24 @@ bool LNS::computeRegretForTask(int task, bool firstIteration) {
   Utility bestUtility = serviceTimes.top();
   serviceTimes.pop();
   Utility secondBestUtility = serviceTimes.top();
+
+  double value = 0;
+  if (regretType == "absolute") {
+    value = secondBestUtility.value - bestUtility.value;
+  } else {
+    value = (secondBestUtility.value + 1) / (bestUtility.value + 1);
+  }
   Regret regret(task, bestUtility.agent, bestUtility.taskPosition,
                 bestUtility.pathLength, bestUtility.agentTasksLen,
-                (int)serviceTimes.size(),
-                secondBestUtility.value - bestUtility.value);
+                (int)serviceTimes.size(), value);
   lnsNeighborhood_.regretMaxHeap.push(regret);
   return true;
 }
 
 void LNS::computeRegretForTaskWithAgent(
     TaskRegretPacket regretPacket, vector<int>* taskAssignments,
-    vector<Path>* taskPaths, vector<pair<int, int>>* precedenceConstraints,
+    vector<AgentTaskPath>* taskPaths,
+    vector<pair<int, int>>* precedenceConstraints,
     pairing_heap<Utility, compare<Utility::CompareUtilities>>* serviceTimes) {
 
   // Compute the first position along the agent's task assignments where we can insert this task
@@ -1291,7 +1315,7 @@ void LNS::computeRegretForTaskWithAgent(
     }
     regretPacket.taskPosition = j;
     // Create a copy of the task assignments, paths and corresponding precedence constraints so that they dont get modified
-    vector<Path> temporaryTaskPaths = *taskPaths;
+    vector<AgentTaskPath> temporaryTaskPaths = *taskPaths;
     vector<int> temporaryTaskAssignments = *taskAssignments;
     vector<pair<int, int>> temporaryPrecedenceConstraints =
         *precedenceConstraints;
@@ -1303,7 +1327,8 @@ void LNS::computeRegretForTaskWithAgent(
 }
 
 // Need the task paths, assignments and precedence constraints as pointers so that we can reuse this code when commiting as we can make in-place changes to these data-structures
-Utility LNS::insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
+Utility LNS::insertTask(TaskRegretPacket regretPacket,
+                        vector<AgentTaskPath>* taskPaths,
                         vector<int>* taskAssignments,
                         vector<pair<int, int>>* precedenceConstraints) {
 
@@ -1311,7 +1336,7 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
   int startTime = 0, previousTask = -1, nextTask = -1;
 
   // The task paths are all the task paths when we dont commit but if we commit they will be agent specific task paths
-  vector<Path>& taskPathsRef = *taskPaths;
+  vector<AgentTaskPath>& taskPathsRef = *taskPaths;
   vector<int>& taskAssignmentsRef = *taskAssignments;
   vector<pair<int, int>>& precedenceConstraintsRef = *precedenceConstraints;
 
@@ -1327,9 +1352,9 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
 
     // Invalidate the path of the next task
     // Compute the path size of the next task before you remove it!
-    taskPathsRef[regretPacket.task] = Path();
+    taskPathsRef[regretPacket.task] = AgentTaskPath();
     pathSizeChange = (double)taskPathsRef[nextTask].size();
-    taskPathsRef[nextTask] = Path();
+    taskPathsRef[nextTask] = AgentTaskPath();
 
     precedenceConstraintsRef.emplace_back(regretPacket.task, nextTask);
 
@@ -1777,7 +1802,8 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
 }
 
 void LNS::buildConstraintTable(ConstraintTable& constraintTable, int task,
-                               int taskLocation, vector<Path>* taskPaths,
+                               int taskLocation,
+                               vector<AgentTaskPath>* taskPaths,
                                vector<pair<int, int>>* precedenceConstraints) {
 
   constraintTable.goalLocation = taskLocation;

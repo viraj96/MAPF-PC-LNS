@@ -2,6 +2,7 @@
 
 #include <plog/Log.h>
 #include <limits>
+#include <utility>
 #include "common.hpp"
 #include "constrainttable.hpp"
 #include "mlastar.hpp"
@@ -227,7 +228,7 @@ struct Neighbor {
 struct FeasibleSolution {
  public:
   int sumOfCosts{}, numOfCols{};
-  vector<Path> agentPaths;
+  vector<AgentTaskPath> agentPaths;
 
   inline int getRowCoordinate(int id) const { return id / numOfCols; }
   inline int getColCoordinate(int id) const { return id % numOfCols; }
@@ -398,6 +399,33 @@ struct ALNS {
   }
 };
 
+struct LNSParams {
+  int neighborhoodSize;
+  double timeLimit, temperature, coolingCoefficient, heatingCoefficient,
+      tolerance, shawDistanceWeight, shawTemporalWeight;
+  string initialSolutionStrategy, destroyHeuristic, acceptanceCriteria,
+      regretType;
+
+  LNSParams(int neighborhoodSize, double timeLimit, double temperature,
+            double coolingCoefficient, double heatingCoefficient,
+            double tolerance, double shawDistanceWeight,
+            double shawTemporalWeight, string initialSolutionStrategy,
+            string destroyHeuristic, string acceptanceCriteria,
+            string regretType)
+      : neighborhoodSize(neighborhoodSize),
+        timeLimit(timeLimit),
+        temperature(temperature),
+        coolingCoefficient(coolingCoefficient),
+        heatingCoefficient(heatingCoefficient),
+        tolerance(tolerance),
+        shawDistanceWeight(shawDistanceWeight),
+        shawTemporalWeight(shawTemporalWeight),
+        initialSolutionStrategy(std::move(initialSolutionStrategy)),
+        destroyHeuristic(std::move(destroyHeuristic)),
+        acceptanceCriteria(std::move(acceptanceCriteria)),
+        regretType(std::move(regretType)) {}
+};
+
 class LNS {
  private:
   int numOfIterations_;
@@ -420,11 +448,11 @@ class LNS {
   double runtime = 0;
   int numOfFailures = 0, sumOfCosts = 0;
   list<IterationStats> iterationStats;
-  string initialSolutionStrategy, destroyHeuristic, acceptanceCriteria;
+  string initialSolutionStrategy, destroyHeuristic, acceptanceCriteria,
+      regretType;
 
-  LNS(int numOfIterations, const Instance& instance, int neighborSize,
-      double timeLimit, string initialStrategy, string destroyHeuristic,
-      string acceptanceCriteria);
+  LNS(int numOfIterations, const Instance& instance,
+      const LNSParams& parameters);
 
   inline Instance getInstance() { return instance_; }
 
@@ -444,7 +472,7 @@ class LNS {
   void buildConstraintTable(ConstraintTable& constraintTable, int task);
 
   void buildConstraintTable(ConstraintTable& constraintTable, int task,
-                            int taskLocation, vector<Path>* taskPaths,
+                            int taskLocation, vector<AgentTaskPath>* taskPaths,
                             vector<pair<int, int>>* precedenceConstraints);
 
   int extractOldLocalTaskIndex(int task, vector<int> taskQueue);
@@ -454,14 +482,16 @@ class LNS {
   bool computeRegretForTask(int task, bool firstIteration);
   void computeRegretForTaskWithAgent(
       TaskRegretPacket regretPacket, vector<int>* taskAssignments,
-      vector<Path>* taskPaths, vector<pair<int, int>>* precedenceConstraints,
+      vector<AgentTaskPath>* taskPaths,
+      vector<pair<int, int>>* precedenceConstraints,
       pairing_heap<Utility, compare<Utility::CompareUtilities>>* serviceTimes);
 
   void commitBestRegretTask(Regret bestRegret);
   void commitAncestorTaskOf(int globalTask,
                             std::optional<pair<bool, int>> committingNextTask);
 
-  Utility insertTask(TaskRegretPacket regretPacket, vector<Path>* taskPaths,
+  Utility insertTask(TaskRegretPacket regretPacket,
+                     vector<AgentTaskPath>* taskPaths,
                      vector<int>* taskAssignments,
                      vector<pair<int, int>>* precedenceConstraints);
   void insertBestRegretTask(TaskRegretPacket bestRegretPacket);
