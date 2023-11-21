@@ -167,8 +167,10 @@ def createLogFile(args, scene, dir):
         file_path - string for the logfile path
     '''
     if(not os.path.isdir("Logs")):
+        print("Creating a Logs Directory!")
         os.mkdir("Logs")
     if(not os.path.isdir("Logs/"+args.baseline)):
+        print("Creating a baseline directory in Logs/")
         os.mkdir("Logs/"+args.baseline)
     
     if(not os.path.isdir(dir)):
