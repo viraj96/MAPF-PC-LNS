@@ -311,7 +311,9 @@ bool LNS::extractFeasibleSolution() {
   return false;
 }
 
-void LNS::randomRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
+void LNS::randomRemoval() {
+
+  PLOGD << "Using random removal\n";
 
   // Clear old information about the LNS neighborhood. This should be the first thing that any removal operator must do!
   lnsNeighborhood_.patchedTasks.clear();
@@ -319,36 +321,33 @@ void LNS::randomRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
   lnsNeighborhood_.commitedTasks.clear();
   lnsNeighborhood_.removedTasksPathSize.clear();
 
-  if (potentialNeighborhood.has_value() && numOfFailures > 0) {
-    // In this case we are resetting to the old neighborhood
-    lnsNeighborhood_.removedTasks = potentialNeighborhood.value();
-  } else {
-    // Randomly choose a task and remove it from the solution and add it to the neighborhood until neighborhood size reaches some threshold
-    std::random_device device;
-    std::mt19937 engine(device());
-    std::uniform_int_distribution<int> distribution(
-        0, instance_.getTasksNum() - 1);
-    while ((int)lnsNeighborhood_.removedTasks.size() < neighborSize_) {
-      int randomTask = distribution(engine);
-      // Check that this random task was not already in the removedTasks queue
-      if (find_if(begin(lnsNeighborhood_.removedTasks),
-                  end(lnsNeighborhood_.removedTasks),
-                  [randomTask](Conflicts conflict) {
-                    return randomTask == conflict.task;
-                  }) != end(lnsNeighborhood_.removedTasks)) {
-        continue;
-      }
-      int randomTaskAgent = solution_.taskAgentMap[randomTask];
-      assert(randomTaskAgent != UNASSIGNED);
-      int randomTaskPosition =
-          solution_.getLocalTaskIndex(randomTaskAgent, randomTask);
-      Conflicts conflict(randomTask, randomTaskAgent, randomTaskPosition);
-      lnsNeighborhood_.removedTasks.insert(conflict);
+  // Randomly choose a task and remove it from the solution and add it to the neighborhood until neighborhood size reaches some threshold
+  std::random_device device;
+  std::mt19937 engine(device());
+  std::uniform_int_distribution<int> distribution(0,
+                                                  instance_.getTasksNum() - 1);
+  while ((int)lnsNeighborhood_.removedTasks.size() < neighborSize_) {
+    int randomTask = distribution(engine);
+    // Check that this random task was not already in the removedTasks queue
+    if (find_if(begin(lnsNeighborhood_.removedTasks),
+                end(lnsNeighborhood_.removedTasks),
+                [randomTask](Conflicts conflict) {
+                  return randomTask == conflict.task;
+                }) != end(lnsNeighborhood_.removedTasks)) {
+      continue;
     }
+    int randomTaskAgent = solution_.taskAgentMap[randomTask];
+    assert(randomTaskAgent != UNASSIGNED);
+    int randomTaskPosition =
+        solution_.getLocalTaskIndex(randomTaskAgent, randomTask);
+    Conflicts conflict(randomTask, randomTaskAgent, randomTaskPosition);
+    lnsNeighborhood_.removedTasks.insert(conflict);
   }
 }
 
 void LNS::conflictRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
+
+  PLOGD << "Using conflict-based removal\n";
 
   // Clear old information about the LNS neighborhood. This should be the first thing that any removal operator must do!
   lnsNeighborhood_.patchedTasks.clear();
@@ -365,14 +364,14 @@ void LNS::conflictRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
 
   if ((int)lnsNeighborhood_.removedTasks.size() < neighborSize_) {
     // In this case we have less conflicts than the neighborhood size of the LNS so we need to augment this list with more tasks possibly using random removal
-    randomRemoval(std::nullopt);
+    randomRemoval();
   }
   // The else case should not happen since the 'extractNConflict' will never return more than neighborhood size set
-
-  for (int neighborSize = 0; neighborSize < neighborSize_; neighborSize++) {}
 }
 
-void LNS::worstRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
+void LNS::worstRemoval() {
+
+  PLOGD << "Using worst removal\n";
 
   // Clear old information about the LNS neighborhood. This should be the first thing that any removal operator must do!
   lnsNeighborhood_.patchedTasks.clear();
@@ -380,37 +379,31 @@ void LNS::worstRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
   lnsNeighborhood_.commitedTasks.clear();
   lnsNeighborhood_.removedTasksPathSize.clear();
 
-  if (potentialNeighborhood.has_value() && numOfFailures > 0) {
-    // In this case we are resetting to the old neighborhood
-    lnsNeighborhood_.removedTasks = potentialNeighborhood.value();
-  } else {
-    // Maintain a priority queue of (key, value) where key is the path length of a task and the value is the task. We need to do a reverse way to avoid making our own comparator
-    ppq worstTasksOrder;
-    for (int task = 0; task < instance_.getTasksNum(); task++) {
-      int taskAgent = solution_.taskAgentMap[task];
-      assert(taskAgent != UNASSIGNED);
-      int taskPosition = solution_.getLocalTaskIndex(taskAgent, task);
-      int taskPathSize =
-          (int)solution_.agents[taskAgent].taskPaths[taskPosition].size();
-      worstTasksOrder.emplace(taskPathSize, task);
-    }
-    while ((int)lnsNeighborhood_.removedTasks.size() < neighborSize_) {
-      pair<int, int> worstTaskFromOrder = worstTasksOrder.top();
-      int worstTask = worstTaskFromOrder.second;
-      // No need to check whether this task was part of the removed tasks already or not since that cannot happen ever!
-      int worstTaskAgent = solution_.taskAgentMap[worstTask];
-      assert(worstTaskAgent != UNASSIGNED);
-      int worstTaskPosition =
-          solution_.getLocalTaskIndex(worstTaskAgent, worstTask);
-      Conflicts conflict(worstTask, worstTaskAgent, worstTaskPosition);
-      lnsNeighborhood_.removedTasks.insert(conflict);
-      worstTasksOrder.pop();
-    }
+  // Maintain a priority queue of (key, value) where key is the path length of a task and the value is the task. We need to do a reverse way to avoid making our own comparator
+  ppq worstTasksOrder;
+  for (int task = 0; task < instance_.getTasksNum(); task++) {
+    int taskAgent = solution_.taskAgentMap[task];
+    assert(taskAgent != UNASSIGNED);
+    int taskPosition = solution_.getLocalTaskIndex(taskAgent, task);
+    int taskPathSize =
+        (int)solution_.agents[taskAgent].taskPaths[taskPosition].size();
+    worstTasksOrder.emplace(taskPathSize, task);
+  }
+  while ((int)lnsNeighborhood_.removedTasks.size() < neighborSize_) {
+    pair<int, int> worstTaskFromOrder = worstTasksOrder.top();
+    int worstTask = worstTaskFromOrder.second;
+    // No need to check whether this task was part of the removed tasks already or not since that cannot happen ever!
+    int worstTaskAgent = solution_.taskAgentMap[worstTask];
+    assert(worstTaskAgent != UNASSIGNED);
+    int worstTaskPosition =
+        solution_.getLocalTaskIndex(worstTaskAgent, worstTask);
+    Conflicts conflict(worstTask, worstTaskAgent, worstTaskPosition);
+    lnsNeighborhood_.removedTasks.insert(conflict);
+    worstTasksOrder.pop();
   }
 }
 
-void LNS::shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood,
-                      int prioritySize) {
+void LNS::shawRemoval(int prioritySize) {
   /*
   Shaw removal works by using the relatedness parameter ->
   r(task_i, task_j) = w1 * distance(task_i_goal, task_j_goal) 
@@ -430,102 +423,93 @@ void LNS::shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood,
   lnsNeighborhood_.commitedTasks.clear();
   lnsNeighborhood_.removedTasksPathSize.clear();
 
-  if (potentialNeighborhood.has_value() && numOfFailures > 0) {
-    // In this case we are resetting to the old neighborhood
-    lnsNeighborhood_.removedTasks = potentialNeighborhood.value();
-  } else {
-    // Randomly choose a task and remove it from the solution and add it to the neighborhood
-    std::random_device device;
-    std::mt19937 engine(device());
-    std::uniform_int_distribution<int> distribution(
-        0, instance_.getTasksNum() - 1);
+  // Randomly choose a task and remove it from the solution and add it to the neighborhood
+  std::random_device device;
+  std::mt19937 engine(device());
+  std::uniform_int_distribution<int> distribution(0,
+                                                  instance_.getTasksNum() - 1);
 
-    // Sample a random task and remove it!
-    int randomTask = distribution(engine);
-    int randomTaskAgent = solution_.taskAgentMap[randomTask];
-    assert(randomTaskAgent != UNASSIGNED);
-    int randomTaskPosition =
-        solution_.getLocalTaskIndex(randomTaskAgent, randomTask);
-    Conflicts randomConflict(randomTask, randomTaskAgent, randomTaskPosition);
-    lnsNeighborhood_.removedTasks.insert(randomConflict);
-    PLOGD << "Shaw Removal Step -> Random Task " << randomTask << " is removed!"
-          << endl;
+  // Sample a random task and remove it!
+  int randomTask = distribution(engine);
+  int randomTaskAgent = solution_.taskAgentMap[randomTask];
+  assert(randomTaskAgent != UNASSIGNED);
+  int randomTaskPosition =
+      solution_.getLocalTaskIndex(randomTaskAgent, randomTask);
+  Conflicts randomConflict(randomTask, randomTaskAgent, randomTaskPosition);
+  lnsNeighborhood_.removedTasks.insert(randomConflict);
+  PLOGD << "Shaw Removal Step -> Random Task " << randomTask << " is removed!"
+        << endl;
 
-    // Get information about random task
-    int randomTaskLocation = instance_.getTaskLocations(randomTask);
-    int randomTaskST = solution_.agents[randomTaskAgent]
-                           .taskPaths[randomTaskPosition]
-                           .beginTime;
-    int randomTaskET = solution_.agents[randomTaskAgent]
-                           .taskPaths[randomTaskPosition]
-                           .endTime();
+  // Get information about random task
+  int randomTaskLocation = instance_.getTaskLocations(randomTask);
+  int randomTaskST =
+      solution_.agents[randomTaskAgent].taskPaths[randomTaskPosition].beginTime;
+  int randomTaskET =
+      solution_.agents[randomTaskAgent].taskPaths[randomTaskPosition].endTime();
 
-    // Initialize a queue to hold the related tasks and rank by relatedness
-    pqRelatedTasks
-        relatedQ;  // TODO: can change to ascending or descending here
-    set<RelatedTasks, RelatedTasks::RelatedTasksComparator> expandedTasks;
+  // Initialize a queue to hold the related tasks and rank by relatedness
+  pqRelatedTasks relatedQ;  // TODO: can change to ascending or descending here
+  set<RelatedTasks, RelatedTasks::RelatedTasksComparator> expandedTasks;
 
-    // Adding the random task first
-    RelatedTasks randomRelatedTask(randomTask, randomTaskAgent,
-                                   randomTaskPosition, randomTaskST,
-                                   randomTaskET, -1, -1);
-    expandedTasks.insert(randomRelatedTask);
+  // Adding the random task first
+  RelatedTasks randomRelatedTask(randomTask, randomTaskAgent,
+                                 randomTaskPosition, randomTaskST, randomTaskET,
+                                 -1, -1);
+  expandedTasks.insert(randomRelatedTask);
 
-    // Select tasks at random for some limit and find their relatedness to the random task above
-    while ((int)expandedTasks.size() < prioritySize) {
-      int relatedTask = distribution(engine);
-      // Check that this selected task was not already in the expanded set
-      if (find_if(begin(expandedTasks), end(expandedTasks),
-                  [relatedTask](RelatedTasks expandedT) {
-                    return relatedTask == expandedT.task;
-                  }) != end(expandedTasks)) {
-        continue;
-      }
-
-      // Get information about related task
-      int relatedTaskAgent = solution_.taskAgentMap[relatedTask];
-      assert(relatedTaskAgent != UNASSIGNED);
-      int relatedTaskPosition =
-          solution_.getLocalTaskIndex(relatedTaskAgent, relatedTask);
-
-      // Compute the manhattan distance
-      int relatedTaskLocation = instance_.getTaskLocations(relatedTask);
-      int relatedManhattanDistance = instance_.getManhattanDistance(
-          randomTaskLocation, relatedTaskLocation);
-
-      // Get the temporal values
-      int relatedTaskST = solution_.agents[relatedTaskAgent]
-                              .taskPaths[relatedTaskPosition]
-                              .beginTime;
-      int relatedTaskET = solution_.agents[relatedTaskAgent]
-                              .taskPaths[relatedTaskPosition]
-                              .endTime();
-
-      // Compute the relatedness
-      int relatedness =
-          shawDistanceWeight_ * relatedManhattanDistance +
-          shawTemporalWeight_ * (abs(randomTaskST - relatedTaskST) +
-                                 abs(randomTaskET - relatedTaskET));
-
-      // Store information
-      RelatedTasks relatedToRandomTask(
-          relatedTask, relatedTaskAgent, relatedTaskPosition, relatedTaskST,
-          relatedTaskET, relatedManhattanDistance, relatedness);
-      expandedTasks.insert(relatedToRandomTask);
-      relatedQ.emplace(relatedness, relatedToRandomTask);
+  // Select tasks at random for some limit and find their relatedness to the random task above
+  while ((int)expandedTasks.size() < prioritySize) {
+    int relatedTask = distribution(engine);
+    // Check that this selected task was not already in the expanded set
+    if (find_if(begin(expandedTasks), end(expandedTasks),
+                [relatedTask](RelatedTasks expandedT) {
+                  return relatedTask == expandedT.task;
+                }) != end(expandedTasks)) {
+      continue;
     }
 
-    // Now get the related tasks in decreasing order of relatedness
-    while ((int)lnsNeighborhood_.removedTasks.size() < neighborSize_) {
-      RelatedTasks relatedTask = relatedQ.top().second;
-      PLOGD << "Shaw Removal Step -> Related Task " << relatedTask.task
-            << " is removed!" << endl;
-      relatedQ.pop();
-      // Add the related task to the neighborhood
-      Conflicts relatedConflict(relatedTask.task, relatedTask.agent,
-                                relatedTask.taskPosition);
-      lnsNeighborhood_.removedTasks.insert(relatedConflict);
-    }
+    // Get information about related task
+    int relatedTaskAgent = solution_.taskAgentMap[relatedTask];
+    assert(relatedTaskAgent != UNASSIGNED);
+    int relatedTaskPosition =
+        solution_.getLocalTaskIndex(relatedTaskAgent, relatedTask);
+
+    // Compute the manhattan distance
+    int relatedTaskLocation = instance_.getTaskLocations(relatedTask);
+    int relatedManhattanDistance =
+        instance_.getManhattanDistance(randomTaskLocation, relatedTaskLocation);
+
+    // Get the temporal values
+    int relatedTaskST = solution_.agents[relatedTaskAgent]
+                            .taskPaths[relatedTaskPosition]
+                            .beginTime;
+    int relatedTaskET = solution_.agents[relatedTaskAgent]
+                            .taskPaths[relatedTaskPosition]
+                            .endTime();
+
+    // Compute the relatedness
+    int relatedness = shawDistanceWeight_ * relatedManhattanDistance +
+                      shawTemporalWeight_ * (abs(randomTaskST - relatedTaskST) +
+                                             abs(randomTaskET - relatedTaskET));
+
+    // Store information
+    RelatedTasks relatedToRandomTask(
+        relatedTask, relatedTaskAgent, relatedTaskPosition, relatedTaskST,
+        relatedTaskET, relatedManhattanDistance, relatedness);
+    expandedTasks.insert(relatedToRandomTask);
+    relatedQ.emplace(relatedness, relatedToRandomTask);
+  }
+
+  // Now get the related tasks in decreasing order of relatedness
+  while ((int)lnsNeighborhood_.removedTasks.size() < neighborSize_) {
+    RelatedTasks relatedTask = relatedQ.top().second;
+    PLOGD << "Shaw Removal Step -> Related Task " << relatedTask.task
+          << " is removed!" << endl;
+    relatedQ.pop();
+    // Add the related task to the neighborhood
+    Conflicts relatedConflict(relatedTask.task, relatedTask.agent,
+                              relatedTask.taskPosition);
+    lnsNeighborhood_.removedTasks.insert(relatedConflict);
   }
 }
 
@@ -537,94 +521,86 @@ void LNS::alnsRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
   lnsNeighborhood_.commitedTasks.clear();
   lnsNeighborhood_.removedTasksPathSize.clear();
 
-  if (potentialNeighborhood.has_value() && numOfFailures > 0) {
-    // In this case we are resetting to the old neighborhood
-    lnsNeighborhood_.removedTasks = potentialNeighborhood.value();
-  } else {
+  adaptiveLNS_.alnsCounter++;
 
-    adaptiveLNS_.alnsCounter++;
-
-    // Cannot update the successes in the first iteration!
-    if (iterationStats.size() != 1) {
-      // Incorporate the results of the heuristic performance in the last iteration
-      switch (iterationStats.back().quality) {
-        case bestSolutionYet:
-          adaptiveLNS_.success[adaptiveLNS_.destroyHeuristicHistory.back()] +=
-              adaptiveLNS_.delta1;
-          break;
-        case improvedSolution:
-          adaptiveLNS_.success[adaptiveLNS_.destroyHeuristicHistory.back()] +=
-              adaptiveLNS_.delta2;
-          break;
-        case dowgradedButAccepted:
-          adaptiveLNS_.success[adaptiveLNS_.destroyHeuristicHistory.back()] +=
-              adaptiveLNS_.delta3;
-          break;
-        default:
-          break;
-      }
-    }
-
-    if (adaptiveLNS_.alnsCounter >= adaptiveLNS_.alnsCounterThreshold) {
-      // Need to update the weights here!
-      for (int i = 0; i < adaptiveLNS_.numDestroyHeuristics; i++) {
-        if (adaptiveLNS_.used[i] > 0) {
-          adaptiveLNS_.weights[i] =
-              (1.0 - adaptiveLNS_.reactionFactor) * adaptiveLNS_.weights[i] +
-              adaptiveLNS_.reactionFactor *
-                  (adaptiveLNS_.success[i] / adaptiveLNS_.used[i]);
-        } else {
-          adaptiveLNS_.weights[i] =
-              (1.0 - adaptiveLNS_.reactionFactor) * adaptiveLNS_.weights[i];
-        }
-        adaptiveLNS_.used[i] = 0;
-        adaptiveLNS_.success[i] = 0;
-      }
-      adaptiveLNS_.alnsCounter = 0;
-    }
-    // Sample the destroy heuristic and extract the neighborhood
-    std::random_device device;
-    std::mt19937 engine(device());
-    std::discrete_distribution<> distribution(adaptiveLNS_.weights.begin(),
-                                              adaptiveLNS_.weights.end());
-
-    int sampledDestroyHeuristic = distribution(engine);
-    switch (sampledDestroyHeuristic) {
-      case DestroyHeuristic::randomRemoval:  // RANDOM
-        randomRemoval(std::nullopt);
+  // Cannot update the successes in the first iteration!
+  if (iterationStats.size() != 1) {
+    // Incorporate the results of the heuristic performance in the last iteration
+    switch (iterationStats.back().quality) {
+      case bestSolutionYet:
+        adaptiveLNS_.success[adaptiveLNS_.destroyHeuristicHistory.back()] +=
+            adaptiveLNS_.delta1;
         break;
-      case DestroyHeuristic::worstRemoval:  // WORST
-        worstRemoval(std::nullopt);
+      case improvedSolution:
+        adaptiveLNS_.success[adaptiveLNS_.destroyHeuristicHistory.back()] +=
+            adaptiveLNS_.delta2;
         break;
-      case DestroyHeuristic::conflictRemoval:  // CONFLICT
-        conflictRemoval(potentialNeighborhood);
-        break;
-      case DestroyHeuristic::shawRemoval:  // SHAW
-        shawRemoval(potentialNeighborhood, neighborSize_ * 3);
+      case dowgradedButAccepted:
+        adaptiveLNS_.success[adaptiveLNS_.destroyHeuristicHistory.back()] +=
+            adaptiveLNS_.delta3;
         break;
       default:
-        PLOGD << "Sampled a non-existant destroy heuristic!\n";
-        static_assert(true);
+        break;
     }
-
-    adaptiveLNS_.used[sampledDestroyHeuristic] += 1;
-    adaptiveLNS_.destroyHeuristicHistory.push_back(sampledDestroyHeuristic);
   }
+
+  if (adaptiveLNS_.alnsCounter >= adaptiveLNS_.alnsCounterThreshold) {
+    // Need to update the weights here!
+    for (int i = 0; i < adaptiveLNS_.numDestroyHeuristics; i++) {
+      if (adaptiveLNS_.used[i] > 0) {
+        adaptiveLNS_.weights[i] =
+            (1.0 - adaptiveLNS_.reactionFactor) * adaptiveLNS_.weights[i] +
+            adaptiveLNS_.reactionFactor *
+                (adaptiveLNS_.success[i] / adaptiveLNS_.used[i]);
+      } else {
+        adaptiveLNS_.weights[i] =
+            (1.0 - adaptiveLNS_.reactionFactor) * adaptiveLNS_.weights[i];
+      }
+      adaptiveLNS_.used[i] = 0;
+      adaptiveLNS_.success[i] = 0;
+    }
+    adaptiveLNS_.alnsCounter = 0;
+  }
+  // Sample the destroy heuristic and extract the neighborhood
+  std::random_device device;
+  std::mt19937 engine(device());
+  std::discrete_distribution<> distribution(adaptiveLNS_.weights.begin(),
+                                            adaptiveLNS_.weights.end());
+
+  int sampledDestroyHeuristic = distribution(engine);
+  switch (sampledDestroyHeuristic) {
+    case DestroyHeuristic::randomRemoval:  // RANDOM
+      randomRemoval();
+      break;
+    case DestroyHeuristic::worstRemoval:  // WORST
+      worstRemoval();
+      break;
+    case DestroyHeuristic::conflictRemoval:  // CONFLICT
+      conflictRemoval(std::move(potentialNeighborhood));
+      break;
+    case DestroyHeuristic::shawRemoval:  // SHAW
+      shawRemoval(neighborSize_ * 3);
+      break;
+    default:
+      PLOGD << "Sampled a non-existant destroy heuristic!\n";
+      static_assert(true);
+  }
+
+  adaptiveLNS_.used[sampledDestroyHeuristic] += 1;
+  adaptiveLNS_.destroyHeuristicHistory.push_back(sampledDestroyHeuristic);
 }
 
 bool LNS::simulatedAnnealing() {
 
   bool accepted = false;
   double acceptanceProb =
-      exp((previousSolution_.sumOfCosts - solution_.sumOfCosts) / temperature_);
+      exp((previousSolution_.utility - solution_.utility) / temperature_);
   if ((double)rand() / (RAND_MAX) < acceptanceProb) {
     // Use simulated annealing to potentially accept worse solutions!
-    numOfFailures = 0;
     accepted = true;
   } else {
     // Reject this solution
     solution_ = previousSolution_;
-    numOfFailures++;
     PLOGD << "Rejecting this solution!\n";
   }
   temperature_ *= coolingCoefficient_;
@@ -635,13 +611,11 @@ bool LNS::thresholdAcceptance() {
 
   bool accepted = false;
   // In this case we are worse than the previous solution but within some threshold so we can accept this one
-  if (solution_.sumOfCosts - previousSolution_.sumOfCosts < temperature_) {
-    numOfFailures = 0;
+  if (solution_.utility - previousSolution_.utility < temperature_) {
     accepted = true;
   } else {
     // Reject this solution
     solution_ = previousSolution_;
-    numOfFailures++;
     PLOGD << "Rejecting this solution!\n";
   }
   temperature_ *= coolingCoefficient_;
@@ -651,15 +625,13 @@ bool LNS::thresholdAcceptance() {
 bool LNS::oldBachelorsAcceptance() {
 
   bool accepted = false;
-  if (solution_.sumOfCosts - previousSolution_.sumOfCosts < temperature_) {
+  if (solution_.utility - previousSolution_.utility < temperature_) {
     // Accept this solution and reduce the temperature
-    numOfFailures = 0;
     temperature_ *= coolingCoefficient_;
     accepted = true;
   } else {
     // Reject this solution and increase the temperature
     solution_ = previousSolution_;
-    numOfFailures++;
     temperature_ *= heatingCoefficient_;
     PLOGD << "Rejecting this solution\n";
   }
@@ -669,16 +641,14 @@ bool LNS::oldBachelorsAcceptance() {
 bool LNS::greatDelugeAlgorithm() {
 
   bool accepted = false;
-  if (solution_.sumOfCosts - previousSolution_.sumOfCosts < temperature_) {
+  if (solution_.utility - previousSolution_.utility < temperature_) {
     // This temperature acts as a water level and we want to accept solutions that fall within some water level and corresponding increase it further for future iterations
     // Since we are effectively doing a minimization problem we need to decrease the temperature ONLY if we accept
-    numOfFailures = 0;
     temperature_ *= coolingCoefficient_;
     accepted = true;
   } else {
     // Reject this solution but dont change the temperature'
     solution_ = previousSolution_;
-    numOfFailures++;
     PLOGD << "Rejecting this solution\n";
   }
   return accepted;
@@ -700,15 +670,13 @@ bool LNS::run() {
     return success;
   }
 
-  printPaths();
-
   initialSolutionRuntime_ = ((fsec)(Time::now() - plannerStartTime_)).count();
   runtime = initialSolutionRuntime_;
 
   PLOGD << "Initial solution cost = " << solution_.sumOfCosts
         << ", Runtime = " << initialSolutionRuntime_ << endl;
 
-  set<Conflicts> potentialNeighborhood;
+  set<Conflicts> potentialNeighborhood;  // Need for the conflict removal case
   bool valid = validateSolution(&potentialNeighborhood);
 
   bool feasibleSolutionUpdated = false;
@@ -717,48 +685,46 @@ bool LNS::run() {
     extractFeasibleSolution();
   }
 
-  temperature_ = solution_.sumOfCosts * (tolerance_ / 100);
-  if (acceptanceCriteria == "SA") {
-    temperature_ /= log(2);
-  }
-
   iterationStats.emplace_back(initialSolutionRuntime_, "greedy",
                               instance_.getAgentNum(), instance_.getTasksNum(),
                               solution_.sumOfCosts, feasibleSolutionUpdated,
                               bestSolutionYet);
+
   set<Conflicts> oldNeighborhood;
-  // This flag is used when we exhaust the regret heap so that we can reset the neighborhood using random-removal operator and hope that next iteration can be solved better!
-  bool fallbackToRandomRemoval = false;
+
+  // Needed to maintain a running mean and standard deviation which can then be used to standardize the sum of costs and conflicts in accepting criteria functions
+  MovingMetrics metrics(numOfIterations_, lnsConflictWeight_, lnsCostWeight_,
+                        (int)potentialNeighborhood.size(),
+                        solution_.sumOfCosts);
+  solution_.utility = metrics.computeMovingMetrics(
+      (int)potentialNeighborhood.size(), solution_.sumOfCosts);
+
+  temperature_ = solution_.utility * (tolerance_ / 100);
+  if (acceptanceCriteria == "SA") {
+    temperature_ /= log(2);
+  }
+
+  previousSolution_ = solution_;
 
   // LNS loop
   while (runtime < timeLimit_) {
 
     // These functions populate the LNS neighborhoods' removedTask parameter
-    if (destroyHeuristic == "conflict" && !fallbackToRandomRemoval) {
+    if (destroyHeuristic == "conflict") {
       conflictRemoval(std::make_optional(potentialNeighborhood));
-    } else if (destroyHeuristic == "worst" && !fallbackToRandomRemoval) {
-      worstRemoval(std::make_optional(potentialNeighborhood));
-    } else if (destroyHeuristic == "random" || fallbackToRandomRemoval) {
-      randomRemoval(std::make_optional(potentialNeighborhood));
-    } else if (destroyHeuristic == "shaw" && !fallbackToRandomRemoval) {
-      shawRemoval(std::make_optional(potentialNeighborhood), neighborSize_ * 3);
-    } else if (destroyHeuristic == "alns" && !fallbackToRandomRemoval) {
+    } else if (destroyHeuristic == "worst") {
+      worstRemoval();
+    } else if (destroyHeuristic == "random") {
+      randomRemoval();
+    } else if (destroyHeuristic == "shaw") {
+      shawRemoval(neighborSize_ * 3);
+    } else if (destroyHeuristic == "alns") {
       alnsRemoval(std::make_optional(potentialNeighborhood));
     } else {
       static_assert(true);
     }
 
-    // This is the case where we accepted the solution at the end of the loop in the previous iteration
-    if (numOfFailures == 0) {
-
-      oldNeighborhood = lnsNeighborhood_.removedTasks;
-      // If we rejected in the previous iteration then we can reuse the previous iteration computations!
-      // We can only clear the service time heap map here as at this point we are certain that we wont need it anymore
-      lnsNeighborhood_.serviceTimesHeapMap.clear();
-
-      // Note: Do not clear removedTasks here since they get assigned at the end of the loop in the previous iteration
-      previousSolution_ = solution_;
-    }
+    oldNeighborhood = lnsNeighborhood_.removedTasks;
 
     PLOGD << "Printing neighborhood conflict tasks\n";
     PLOGD << "Size: " << lnsNeighborhood_.removedTasks.size() << "\n";
@@ -778,10 +744,7 @@ bool LNS::run() {
     // Compute regret for each of the tasks that are in the conflicting set
     // Pick the best one and repeat the whole process again
     while (!lnsNeighborhood_.removedTasks.empty()) {
-      bool enoughSpace =
-          computeRegret((int)lnsNeighborhood_.removedTasks.size() -
-                            lnsNeighborhood_.additionalTasksAdded ==
-                        (int)oldNeighborhood.size());
+      bool enoughSpace = computeRegret();
       if (!enoughSpace) {
         // We could not compute enough regrets for each task so we need to try and reset the solution and try potentially with a different neighborhood!
         break;
@@ -794,26 +757,21 @@ bool LNS::run() {
 
     IterationQuality quality = IterationQuality::none;
 
-    // If we could not successfully compute the regrets and commit to all the tasks in the neighborhood then we need to reset this neighborhood using random-removal operator and hope that next time it can be solved!
+    // If we could not successfully compute the regrets and commit to all the tasks in the neighborhood then we need to reset this neighborhood!
     if (!lnsNeighborhood_.removedTasks.empty()) {
       // Reject whatever we done till now
-      fallbackToRandomRemoval = true;
       solution_ = previousSolution_;
-      potentialNeighborhood = oldNeighborhood;
       feasibleSolutionUpdated = false;
-      // Set the number of failures to 0 so that the destroy heuristic and start fresh again!
-      numOfFailures = 0;
       quality = IterationQuality::none;
       runtime = ((fsec)(Time::now() - plannerStartTime_)).count();
       iterationStats.emplace_back(runtime, "LNS", instance_.getAgentNum(),
                                   instance_.getTasksNum(), solution_.sumOfCosts,
                                   feasibleSolutionUpdated, quality);
       // Skip everything after this statement
-      PLOGD << "Going to fallback to random removal!\n";
+      PLOGD << "Could not find paths for the neighborhood! Attempting a new "
+               "neighborhood computation\n";
       continue;
     }
-
-    fallbackToRandomRemoval = false;
 
     // Join the individual paths that were found for each agent
     for (int i = 0; i < instance_.getAgentNum(); i++) {
@@ -835,17 +793,20 @@ bool LNS::run() {
     PLOGD << "Old sum of costs = " << previousSolution_.sumOfCosts << endl;
     PLOGD << "New sum of costs = " << solution_.sumOfCosts << endl;
 
-    // Accept the solution only if the new one has lower number of conflicts or it has lower
-    // cost of the solution
+    PLOGD << "Number of conflicts in old solution: "
+          << (int)potentialNeighborhood.size() << endl;
 
     // Extract the set of conflicting tasks
     potentialNeighborhood.clear();
     valid = validateSolution(&potentialNeighborhood);
 
-    PLOGD << "Number of conflicts in old solution: "
-          << (int)oldNeighborhood.size() << endl;
     PLOGD << "Number of conflicts in new solution: "
           << potentialNeighborhood.size() << endl;
+
+    // Accept the solution only if the new one has higher utility compared to the old solution where utility is a weighted combination of the number of conflicts and sum of costs.
+    // Compute the utility of this solution
+    solution_.utility = metrics.computeMovingMetrics(
+        (int)potentialNeighborhood.size(), solution_.sumOfCosts);
 
     if (!valid) {
       // Solution was not valid as we found some conflicts!
@@ -859,56 +820,33 @@ bool LNS::run() {
       }
     }
 
-    if ((int)oldNeighborhood.size() < (int)potentialNeighborhood.size()) {
-      // Reject this solution
-      solution_ = previousSolution_;
-      potentialNeighborhood = oldNeighborhood;
-      numOfFailures++;
-      quality = IterationQuality::none;
-      PLOGD << "Rejecting this solution!\n";
-    } else if ((int)oldNeighborhood.size() ==
-                   (int)potentialNeighborhood.size() &&
-               (int)oldNeighborhood.size() != 0) {
-      if (previousSolution_.sumOfCosts <= solution_.sumOfCosts) {
-
-        // Ensure that we are either accepting or rejecting a solution here!
-        bool accepted;
-        if (acceptanceCriteria == "SA") {
-          accepted = simulatedAnnealing();
-        } else if (acceptanceCriteria == "TA") {
-          accepted = thresholdAcceptance();
-        } else if (acceptanceCriteria == "OBA") {
-          accepted = oldBachelorsAcceptance();
-        } else if (acceptanceCriteria == "GDA") {
-          accepted = greatDelugeAlgorithm();
-        } else {
-          accepted = false;
-          static_assert(true);
-        }
-
-        // If we did reject a solution using these criterias then we need to reset the conflicts to the previous iteration ones!
-        if (!accepted) {
-          quality = IterationQuality::none;
-          potentialNeighborhood = oldNeighborhood;
-        } else {
-          quality = IterationQuality::dowgradedButAccepted;
-        }
-
-      } else {
-        // Accept this solution
-        numOfFailures = 0;
-        quality = IterationQuality::improvedSolution;
-      }
+    // Ensure that we are either accepting or rejecting a solution here!
+    bool accepted;
+    if (acceptanceCriteria == "SA") {
+      accepted = simulatedAnnealing();
+    } else if (acceptanceCriteria == "TA") {
+      accepted = thresholdAcceptance();
+    } else if (acceptanceCriteria == "OBA") {
+      accepted = oldBachelorsAcceptance();
+    } else if (acceptanceCriteria == "GDA") {
+      accepted = greatDelugeAlgorithm();
     } else {
-      // Accept this solution
-      numOfFailures = 0;
-      // We accept but still the quality is undefined since the number of conflicts is same as the last iteration i.e 0
-      if (previousSolution_.sumOfCosts <= solution_.sumOfCosts) {
-        // If we still improve on the costs then great!
-        quality = IterationQuality::improvedSolution;
+      accepted = false;
+      static_assert(true);
+    }
+
+    if (!accepted) {
+      quality = IterationQuality::none;
+      potentialNeighborhood = oldNeighborhood;
+    } else {
+      if (previousSolution_.utility < solution_.utility) {
+        // We accepted a potentially worse solution to get out of local minima
+        quality = IterationQuality::dowgradedButAccepted;
       } else {
-        quality = IterationQuality::none;
+        // We accepted a strictly better solution!
+        quality = IterationQuality::improvedSolution;
       }
+      previousSolution_ = solution_;
     }
 
     runtime = ((fsec)(Time::now() - plannerStartTime_)).count();
@@ -922,8 +860,7 @@ bool LNS::run() {
   std::cout << "MAPF-PC-LNS: "
             << "\n\tRuntime = " << runtime
             << "\n\tIterations = " << iterationStats.size()
-            << "\n\tSolution Cost = " << solution_.sumOfCosts
-            << "\n\tNumber of failures = " << numOfFailures << endl;
+            << "\n\tSolution Cost = " << solution_.sumOfCosts << endl;
 
   return !incumbentSolution_.agentPaths.empty();
 }
@@ -933,8 +870,6 @@ void LNS::prepareNextIteration() {
 
   // Find the tasks that are following the earliest conflicting task as their paths need to be invalidated
   vector<vector<int>> successors = instance_.getSuccessors();
-  lnsNeighborhood_.additionalTasksAdded =
-      (int)lnsNeighborhood_.removedTasks.size();
 
   // We need to include all the successors of the original conflicted tasks to ensure that we dont try to find their paths later down the line because otherwise we will face errors since the ancestors of those successor tasks wont have paths.
   for (Conflicts conflictTask : lnsNeighborhood_.removedTasks) {
@@ -950,9 +885,6 @@ void LNS::prepareNextIteration() {
       lnsNeighborhood_.removedTasks.insert(successorConflict);
     }
   }
-  lnsNeighborhood_.additionalTasksAdded =
-      (int)lnsNeighborhood_.removedTasks.size() -
-      lnsNeighborhood_.additionalTasksAdded;
 
   // If t_id is deleted then t_id + 1 task needs to be fixed
   set<int> tasksToFix, affectedAgents;
@@ -1034,9 +966,11 @@ void LNS::prepareNextIteration() {
 
       ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
       buildConstraintTable(constraintTable, task);
-      solution_.agents[agent].taskPaths[taskPosition] =
-          solution_.agents[agent].pathPlanner->findPathSegment(
-              constraintTable, startTime, taskPosition, 0);
+      AgentTaskPath path = solution_.agents[agent].pathPlanner->findPathSegment(
+          constraintTable, startTime, taskPosition, 0);
+      // We must be able to find the path for the next task. If not then we cannot move forward!
+      assert(!path.empty());
+      solution_.agents[agent].taskPaths[taskPosition] = path;
 
       // Once the path was found fix the begin times for subsequent tasks of the agent
       patchAgentTaskPaths(agent, taskPosition);
@@ -1044,55 +978,18 @@ void LNS::prepareNextIteration() {
   }
 }
 
-bool LNS::computeRegret(bool firstIteration) {
+bool LNS::computeRegret() {
   lnsNeighborhood_.regretMaxHeap.clear();
   for (Conflicts conflictTask : lnsNeighborhood_.removedTasks) {
-    // If we rejected the last iteration solution, then we are starting again. In the first loop of this iteration we can reuse the computation we did in the first loop of the last iteration. Rest would need to be computed again.
-    if (numOfFailures > 0 && firstIteration) {
-      // Compute f3 - f2, f4 - f3 etc as needed.
-      pairing_heap<Utility, compare<Utility::CompareUtilities>>
-          conflictTaskServiceTimes =
-              lnsNeighborhood_.serviceTimesHeapMap[conflictTask.task];
-
-      int nextValidUtilityCounter = numOfFailures;
-      while (nextValidUtilityCounter > 0) {
-        conflictTaskServiceTimes.pop();
-        nextValidUtilityCounter--;
-      }
-      if ((int)conflictTaskServiceTimes.size() < 2) {
-        // This is the case when we exhaust the heap i.e there are no more options left to compute the regret for this task
-        PLOGD << "Ran out of service time options for task "
-              << conflictTask.task
-              << " inside the cached version of compute regret function\n";
-        return false;
-      }
-      Utility bestUtility = conflictTaskServiceTimes.top();
-      conflictTaskServiceTimes.pop();
-      Utility nextBestValidUtility = conflictTaskServiceTimes.top();
-      double value = 0;
-      if (regretType == "absolute") {
-        value = nextBestValidUtility.value - bestUtility.value;
-      } else {
-        value = (nextBestValidUtility.value + 1) / (bestUtility.value + 1);
-      }
-      Regret regret(conflictTask.task, bestUtility.agent,
-                    bestUtility.taskPosition, bestUtility.pathLength,
-                    bestUtility.agentTasksLen,
-                    (int)conflictTaskServiceTimes.size(), value);
-      lnsNeighborhood_.regretMaxHeap.push(regret);
-
-    } else {
-      bool enoughSpace =
-          computeRegretForTask(conflictTask.task, firstIteration);
-      if (!enoughSpace) {
-        return false;
-      }
+    bool enoughSpace = computeRegretForTask(conflictTask.task);
+    if (!enoughSpace) {
+      return false;
     }
   }
   return true;
 }
 
-bool LNS::computeRegretForTask(int task, bool firstIteration) {
+bool LNS::computeRegretForTask(int task) {
   pairing_heap<Utility, compare<Utility::CompareUtilities>> serviceTimes;
 
   // The task has to start after the earliest time step but needs to finish before the latest time step. However we cannot give any guarantee on the latest timestep so we only work with the earliest timestep
@@ -1255,11 +1152,6 @@ bool LNS::computeRegretForTask(int task, bool firstIteration) {
                                   &serviceTimes);
   }
 
-  // Only need to keep track of the service times when none of the conflict tasks were committed. Next iteration onwards we would need to recompute them again
-  if (firstIteration) {
-    lnsNeighborhood_.serviceTimesHeapMap.insert(make_pair(task, serviceTimes));
-  }
-
   if ((int)serviceTimes.size() < 2) {
     // This is the case when we run out of heap i.e there are not enough options left to compute the regret for this task!
     PLOGD << "Ran out of service time options for task " << task
@@ -1319,18 +1211,20 @@ void LNS::computeRegretForTaskWithAgent(
     vector<int> temporaryTaskAssignments = *taskAssignments;
     vector<pair<int, int>> temporaryPrecedenceConstraints =
         *precedenceConstraints;
-    Utility utility =
+    std::variant<bool, Utility> insertCulmination =
         insertTask(regretPacket, &temporaryTaskPaths, &temporaryTaskAssignments,
                    &temporaryPrecedenceConstraints);
-    serviceTimes->push(utility);
+    if (std::holds_alternative<Utility>(insertCulmination)) {
+      serviceTimes->push(std::get<Utility>(insertCulmination));
+    }
   }
 }
 
 // Need the task paths, assignments and precedence constraints as pointers so that we can reuse this code when commiting as we can make in-place changes to these data-structures
-Utility LNS::insertTask(TaskRegretPacket regretPacket,
-                        vector<AgentTaskPath>* taskPaths,
-                        vector<int>* taskAssignments,
-                        vector<pair<int, int>>* precedenceConstraints) {
+std::variant<bool, Utility> LNS::insertTask(
+    TaskRegretPacket regretPacket, vector<AgentTaskPath>* taskPaths,
+    vector<int>* taskAssignments,
+    vector<pair<int, int>>* precedenceConstraints) {
 
   double pathSizeChange = 0;
   int startTime = 0, previousTask = -1, nextTask = -1;
@@ -1492,8 +1386,12 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket,
     buildConstraintTable(constraintTable, regretPacket.task,
                          goalLocations[regretPacket.taskPosition],
                          &taskPathsRef, &precedenceConstraintsRef);
-    taskPathsRef[regretPacket.task] = localPlanner.findPathSegment(
+    AgentTaskPath path = localPlanner.findPathSegment(
         constraintTable, startTime, taskPosition, 0);
+    if (path.empty()) {
+      return false;
+    }
+    taskPathsRef[regretPacket.task] = path;
     startTime = taskPathsRef[regretPacket.task].endTime();
 
     // Need to recompute the positions as we might add paths for parent tasks before reaching here!
@@ -1503,8 +1401,12 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket,
     buildConstraintTable(constraintTable, nextTask,
                          goalLocations[nextTaskPosition], &taskPathsRef,
                          &precedenceConstraintsRef);
-    taskPathsRef[nextTask] = localPlanner.findPathSegment(
+    AgentTaskPath nextPath = localPlanner.findPathSegment(
         constraintTable, startTime, nextTaskPosition, 0);
+    if (nextPath.empty()) {
+      return false;
+    }
+    taskPathsRef[nextTask] = nextPath;
   } else {
 
     vector<int> goalLocations = instance_.getTaskLocations(taskAssignmentsRef);
@@ -1518,8 +1420,12 @@ Utility LNS::insertTask(TaskRegretPacket regretPacket,
     buildConstraintTable(constraintTable, regretPacket.task,
                          goalLocations[regretPacket.taskPosition],
                          &taskPathsRef, &precedenceConstraintsRef);
-    taskPathsRef[regretPacket.task] = localPlanner.findPathSegment(
+    AgentTaskPath path = localPlanner.findPathSegment(
         constraintTable, startTime, regretPacket.taskPosition, 0);
+    if (path.empty()) {
+      return false;
+    }
+    taskPathsRef[regretPacket.task] = path;
   }
 
   auto value = (double)taskPathsRef[regretPacket.task].size();
@@ -1756,9 +1662,12 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
         AgentTaskPath());
 
     buildConstraintTable(constraintTable, bestRegretPacket.task);
-    solution_.agents[bestRegretPacket.agent].taskPaths[taskPosition] =
+    AgentTaskPath path =
         solution_.agents[bestRegretPacket.agent].pathPlanner->findPathSegment(
             constraintTable, startTime, taskPosition, 0);
+    // We must be able to insert this path for this task as its the best regret path and we did try it before i.e it must have succeeded then
+    assert(!path.empty());
+    solution_.agents[bestRegretPacket.agent].taskPaths[taskPosition] = path;
     solution_.agents[bestRegretPacket.agent]
         .insertIntraAgentPrecedenceConstraint(bestRegretPacket.task,
                                               bestRegretPacket.taskPosition);
@@ -1774,9 +1683,13 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
     startTime = solution_.agents[bestRegretPacket.agent]
                     .taskPaths[nextTaskPosition - 1]
                     .endTime();
-    solution_.agents[bestRegretPacket.agent].taskPaths[nextTaskPosition] =
+    AgentTaskPath nextPath =
         solution_.agents[bestRegretPacket.agent].pathPlanner->findPathSegment(
             constraintTable, startTime, nextTaskPosition, 0);
+    // We must be able to insert this path for this task as its the best regret path and we did try it before i.e it must have succeeded then
+    assert(!nextPath.empty());
+    solution_.agents[bestRegretPacket.agent].taskPaths[nextTaskPosition] =
+        nextPath;
   } else {
 
     vector<int> goalLocations = instance_.getTaskLocations(
@@ -1788,10 +1701,13 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
     solution_.agents[bestRegretPacket.agent].pathPlanner->computeHeuristics();
 
     buildConstraintTable(constraintTable, bestRegretPacket.task);
-    solution_.agents[bestRegretPacket.agent]
-        .taskPaths[bestRegretPacket.taskPosition] =
+    AgentTaskPath path =
         solution_.agents[bestRegretPacket.agent].pathPlanner->findPathSegment(
             constraintTable, startTime, bestRegretPacket.taskPosition, 0);
+    // We must be able to insert this path for this task as its the best regret path and we did try it before i.e it must have succeeded then
+    assert(!path.empty());
+    solution_.agents[bestRegretPacket.agent]
+        .taskPaths[bestRegretPacket.taskPosition] = path;
     solution_.agents[bestRegretPacket.agent]
         .insertIntraAgentPrecedenceConstraint(bestRegretPacket.task,
                                               bestRegretPacket.taskPosition);

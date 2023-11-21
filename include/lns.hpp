@@ -2,6 +2,7 @@
 
 #include <plog/Log.h>
 #include <limits>
+#include <numeric>
 #include <utility>
 #include "common.hpp"
 #include "constrainttable.hpp"
@@ -215,14 +216,11 @@ struct Conflicts {
 };
 
 struct Neighbor {
-  int additionalTasksAdded;
   set<int> patchedTasks;
   map<int, bool> commitedTasks;
   map<int, int> removedTasksPathSize;
   set<Conflicts> removedTasks, immutableRemovedTasks;
   pairing_heap<Regret, compare<Regret::CompareRegrets>> regretMaxHeap;
-  map<int, pairing_heap<Utility, compare<Utility::CompareUtilities>>>
-      serviceTimesHeapMap;
 };
 
 struct FeasibleSolution {
@@ -265,6 +263,7 @@ struct FeasibleSolution {
 class Solution {
  public:
   int sumOfCosts{};
+  double utility{};
   vector<Agent> agents;
   map<int, int> taskAgentMap;  // (key, value) - (global task, agent)
   int numOfAgents, numOfTasks;
@@ -402,14 +401,16 @@ struct ALNS {
 struct LNSParams {
   int neighborhoodSize;
   double timeLimit, temperature, coolingCoefficient, heatingCoefficient,
-      tolerance, shawDistanceWeight, shawTemporalWeight;
+      tolerance, shawDistanceWeight, shawTemporalWeight, lnsConflictWeight,
+      lnsCostWeight;
   string initialSolutionStrategy, destroyHeuristic, acceptanceCriteria,
       regretType;
 
   LNSParams(int neighborhoodSize, double timeLimit, double temperature,
             double coolingCoefficient, double heatingCoefficient,
             double tolerance, double shawDistanceWeight,
-            double shawTemporalWeight, string initialSolutionStrategy,
+            double shawTemporalWeight, double lnsConflictWeight,
+            double lnsCostWeight, string initialSolutionStrategy,
             string destroyHeuristic, string acceptanceCriteria,
             string regretType)
       : neighborhoodSize(neighborhoodSize),
@@ -420,6 +421,8 @@ struct LNSParams {
         tolerance(tolerance),
         shawDistanceWeight(shawDistanceWeight),
         shawTemporalWeight(shawTemporalWeight),
+        lnsConflictWeight(lnsConflictWeight),
+        lnsCostWeight(lnsCostWeight),
         initialSolutionStrategy(std::move(initialSolutionStrategy)),
         destroyHeuristic(std::move(destroyHeuristic)),
         acceptanceCriteria(std::move(acceptanceCriteria)),
@@ -441,7 +444,8 @@ class LNS {
   double timeLimit_, initialSolutionRuntime_ = 0, temperature_ = 100,
                      coolingCoefficient_ = 0.99975,
                      heatingCoefficient_ = 1.00025, tolerance_ = 5,
-                     shawDistanceWeight_ = 9, shawTemporalWeight_ = 3;
+                     shawDistanceWeight_ = 9, shawTemporalWeight_ = 3,
+                     lnsConflictWeight_ = 0.75, lnsCostWeight_ = 0.25;
   high_resolution_clock::time_point plannerStartTime_;
 
  public:
@@ -478,8 +482,8 @@ class LNS {
   int extractOldLocalTaskIndex(int task, vector<int> taskQueue);
   set<int> reachableSet(int source, vector<vector<int>> edgeList);
 
-  bool computeRegret(bool firstIteration);
-  bool computeRegretForTask(int task, bool firstIteration);
+  bool computeRegret();
+  bool computeRegretForTask(int task);
   void computeRegretForTaskWithAgent(
       TaskRegretPacket regretPacket, vector<int>* taskAssignments,
       vector<AgentTaskPath>* taskPaths,
@@ -490,10 +494,10 @@ class LNS {
   void commitAncestorTaskOf(int globalTask,
                             std::optional<pair<bool, int>> committingNextTask);
 
-  Utility insertTask(TaskRegretPacket regretPacket,
-                     vector<AgentTaskPath>* taskPaths,
-                     vector<int>* taskAssignments,
-                     vector<pair<int, int>>* precedenceConstraints);
+  std::variant<bool, Utility> insertTask(
+      TaskRegretPacket regretPacket, vector<AgentTaskPath>* taskPaths,
+      vector<int>* taskAssignments,
+      vector<pair<int, int>>* precedenceConstraints);
   void insertBestRegretTask(TaskRegretPacket bestRegretPacket);
 
   Solution getSolution() { return solution_; }
@@ -502,17 +506,18 @@ class LNS {
   bool extractFeasibleSolution();
   FeasibleSolution getFeasibleSolution() { return incumbentSolution_; }
 
-  void randomRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
-  void worstRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
+  void randomRemoval();
+  void worstRemoval();
   void conflictRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
-  void shawRemoval(std::optional<set<Conflicts>> potentialNeighborhood,
-                   int prioritySize);
+  void shawRemoval(int prioritySize);
   void alnsRemoval(std::optional<set<Conflicts>> potentialNeighborhood);
 
   bool simulatedAnnealing();
   bool thresholdAcceptance();
   bool oldBachelorsAcceptance();
   bool greatDelugeAlgorithm();
+
+  void computeMovingMetrics(int numberOfConflicts, int sumOfCosts);
 
   void printAgents() const {
     for (int i = 0; i < instance_.getAgentNum(); i++) {

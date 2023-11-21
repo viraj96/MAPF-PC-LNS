@@ -164,3 +164,53 @@ set<Conflicts> extractNConflicts(int size, const set<Conflicts>& conflicts) {
   }
   return result;
 }
+
+double MovingMetrics::computeMovingMetrics(int numberOfConflicts,
+                                           int sumOfCosts) {
+
+  // Compute the utility of this solution
+  // Compute the new sample
+  int numConflictsSquare = pow(numberOfConflicts, 2),
+      numCostSquare = pow(sumOfCosts, 2);
+  // Extract the oldest sample
+  double oldestNumConflicts = conflictNum[oldestValue],
+         oldestNumConflictsSquare = conflictSquareNum[oldestValue],
+         oldestNumCost = costNum[oldestValue],
+         oldestNumCostSquare = costSquareNum[oldestValue];
+
+  // Update the oldest sample
+  conflictNum[oldestValue] = numberOfConflicts;
+  conflictSquareNum[oldestValue] = numConflictsSquare;
+  costNum[oldestValue] = sumOfCosts;
+  costSquareNum[oldestValue] = numCostSquare;
+
+  // Update the oldest sample location
+  oldestValue++;
+  oldestValue %= size;
+
+  // Compute the new sum based on the adding the new sample and removing the oldest sample
+  sumOfNumConflicts += numberOfConflicts - oldestNumConflicts;
+  sumOfNumConflictsSquare += numConflictsSquare - oldestNumConflictsSquare;
+  sumOfNumCosts += sumOfCosts - oldestNumCost;
+  sumOfNumCostsSquare += numCostSquare - oldestNumCostSquare;
+
+  // Compute the moving average and variance of the number of conflicts and sum of costs variables
+  double movingNumConflictAverage = sumOfNumConflicts / size,
+         movingNumConflictVar =
+             (size * sumOfNumConflictsSquare - (pow(sumOfNumConflicts, 2))) /
+             (size * (size - 1));
+  double movingNumCostAverage = sumOfNumCosts / size,
+         movingNumCostVar =
+             (size * sumOfNumCostsSquare - (pow(sumOfNumCosts, 2))) /
+             (size * (size - 1));
+
+  PLOGD << "Moving average of conflicts = " << movingNumConflictAverage
+        << ", Moving average of costs = " << movingNumCostAverage << "\n";
+
+  double utility =
+      lnsConflictWeight * ((numberOfConflicts - movingNumConflictAverage) /
+                           sqrt(movingNumConflictVar)) +
+      lnsCostWeight *
+          ((sumOfCosts - movingNumCostAverage) / sqrt(movingNumCostVar));
+  return utility;
+}
