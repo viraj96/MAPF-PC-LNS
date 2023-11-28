@@ -130,8 +130,8 @@ int main(int argc, char** argv) {
 
   LNSParams parameters(vm["neighborSize"].as<int>(),
                        vm["cutoffTime"].as<double>(), 100, 0.99975, 1.00025, 5,
-                       9, 3, initialSolutionStrategy, destroyHeuristic,
-                       acceptanceCriteria, regretType);
+                       9, 3, 0.75, 0.25, initialSolutionStrategy,
+                       destroyHeuristic, acceptanceCriteria, regretType);
   LNS lnsInstance = LNS(vm["maxIterations"].as<int>(), instance, parameters);
   bool success = lnsInstance.run();
 
@@ -151,7 +151,7 @@ int main(int argc, char** argv) {
     saveFileForCBSPC.fileSave();
   }
 
-  double firstFeasibleSolutionTime = 0, averageFeasibleSolutionUpdate = 0;
+  double firstFeasibleSolutionTime = 0, numFeasibleSolutionUpdate = 0;
   if (success) {
     for (const IterationStats& iter : lnsInstance.iterationStats) {
       if (iter.feasibleSolutionFound) {
@@ -161,14 +161,12 @@ int main(int argc, char** argv) {
     }
     for (const IterationStats& iter : lnsInstance.iterationStats) {
       if (iter.feasibleSolutionFound) {
-        averageFeasibleSolutionUpdate += 1;
+        numFeasibleSolutionUpdate += 1;
       }
     }
   } else {
     firstFeasibleSolutionTime = INT_MAX;
   }
-
-  averageFeasibleSolutionUpdate /= (int)lnsInstance.iterationStats.size();
 
   // Compute the results from ALNS
   if (destroyHeuristic == "alns") {
@@ -208,7 +206,7 @@ int main(int argc, char** argv) {
             << "\n\tFirst Feasible Solution Runtime = "
             << firstFeasibleSolutionTime
             << "\n\tAverage Update of Feasible Solution = "
-            << averageFeasibleSolutionUpdate
+            << numFeasibleSolutionUpdate
             << "\n\tSolution Cost = " << anytimeSolution.sumOfCosts
             << "\n\tNumber of failures = " << lnsInstance.numOfFailures
             << "\n\tSuccess = " << success << endl;
