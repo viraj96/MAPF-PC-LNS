@@ -18,39 +18,33 @@ int main(int argc, char** argv) {
 
   namespace po = boost::program_options;
   po::options_description desc("Allowed options");
-  desc.add_options()("help", "Produce help message");
-  desc.add_options()("map,m", po::value<string>()->required(),
-                     "Input file for map");
-  desc.add_options()("agents,a", po::value<string>()->required(),
-                     "Input file for agents");
-  desc.add_options()("output,o", po::value<string>(),
-                     "Output file for schedule");
-  desc.add_options()("cutoffTime,t", po::value<double>()->default_value(7200),
-                     "Cutoff time (seconds)");
-  desc.add_options()("agentNum,k", po::value<int>()->default_value(0),
-                     "Number of agents to plan for");
-  desc.add_options()("taskNum,l", po::value<int>()->default_value(0),
-                     "Number of tasks to plan for");
-  desc.add_options()("neighborSize,n", po::value<int>()->default_value(8),
-                     "Size of the neighborhood");
-  desc.add_options()("maxIterations,i", po::value<int>()->default_value(0),
-                     "Maximum number of iterations");
-  desc.add_options()("severity,d", po::value<int>()->default_value(0),
-                     "Debugging level");
-  desc.add_options()("initialSolution,s", po::value<string>(),
-                     "Strategy for the initial solution");
-  desc.add_options()(
+  desc.add_options()("help", "Produce help message")(
+      "map,m", po::value<string>()->required(), "Input file for map")(
+      "agents,a", po::value<string>()->required(), "Input file for agents")(
+      "output,o", po::value<string>(), "Output file for schedule")(
+      "cutoffTime,t", po::value<double>()->default_value(7200),
+      "Cutoff time (seconds)")("agentNum,k", po::value<int>()->default_value(0),
+                               "Number of agents to plan for")(
+      "taskNum,l", po::value<int>()->default_value(0),
+      "Number of tasks to plan for")("neighborSize,n",
+                                     po::value<int>()->default_value(8),
+                                     "Size of the neighborhood")(
+      "maxIterations,i", po::value<int>()->default_value(0),
+      "Maximum number of iterations")(
+      "severity,d", po::value<int>()->default_value(0), "Debugging level")(
+      "initialSolution,s", po::value<string>(),
+      "Strategy for the initial solution")(
       "destroyHeuristic,h", po::value<string>()->default_value("conflict"),
-      "Destroy heuristic to use for creating the LNS neighborhood");
-  desc.add_options()("acceptanceCriteria,c",
-                     po::value<string>()->default_value("SA"),
-                     "Acceptance criteria for new solutions");
-  desc.add_options()("genReport,g", po::value<bool>()->default_value(false),
-                     "Whether to generate the report file that can be fed to "
-                     "CBS-PC for verificattion");
-  desc.add_options()("regretType,r",
-                     po::value<string>()->default_value("absolute"),
-                     "Type of regret metric to use i.e relative or absolute");
+      "Destroy heuristic to use for creating the LNS neighborhood")(
+      "acceptanceCriteria,c", po::value<string>()->default_value("SA"),
+      "Acceptance criteria for new solutions")(
+      "genReport,g", po::value<bool>()->default_value(false),
+      "Whether to generate the report file that can be fed to "
+      "CBS-PC for verificattion")(
+      "regretType,r", po::value<string>()->default_value("absolute"),
+      "Type of regret metric to use i.e relative or absolute")(
+      "singleAgentSolver,p", po::value<string>()->default_value("mlastar"),
+      "Type of single agnet solver to use. Can use 'mlastar'(MLA*) or 'sipps'");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -100,9 +94,17 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  string singleAgentSolverType = vm["singleAgentSolver"].as<string>();
+  if (singleAgentSolverType != "mastar" && singleAgentSolverType != "sipps") {
+    PLOGE << "The single agent solver type provided is not supported! Please "
+             "choose from "
+             "'mlastar' for MLA* and 'sipps'\n";
+    return 1;
+  }
+
   // Need to store the seed for debugging
   auto srandSeed = (int)time(nullptr);
-  // srandSeed = 1700258898;
+  srandSeed = 1700258898;
   srand(srandSeed);
 
   Instance instance(vm["map"].as<string>(), vm["agents"].as<string>(),
@@ -128,10 +130,10 @@ int main(int argc, char** argv) {
     }
   }
 
-  LNSParams parameters(vm["neighborSize"].as<int>(),
-                       vm["cutoffTime"].as<double>(), 100, 0.99975, 1.00025, 5,
-                       9, 3, 0.75, 0.25, initialSolutionStrategy,
-                       destroyHeuristic, acceptanceCriteria, regretType);
+  LNSParams parameters(
+      vm["neighborSize"].as<int>(), vm["cutoffTime"].as<double>(), 100, 0.99975,
+      1.00025, 5, 9, 3, 0.75, 0.25, initialSolutionStrategy, destroyHeuristic,
+      acceptanceCriteria, regretType, singleAgentSolverType);
   LNS lnsInstance = LNS(vm["maxIterations"].as<int>(), instance, parameters);
   bool success = lnsInstance.run();
 
@@ -200,13 +202,17 @@ int main(int argc, char** argv) {
     }
   }
 
+  pair<int, int> initialSolutionStats = lnsInstance.getInitialSolutionStats();
   std::cout << "\nMAPF-PC-LNS: "
             << "\n\tRuntime = " << lnsInstance.runtime
             << "\n\tIterations = " << lnsInstance.iterationStats.size()
             << "\n\tFirst Feasible Solution Runtime = "
             << firstFeasibleSolutionTime
-            << "\n\tAverage Update of Feasible Solution = "
+            << "\n\tNumber of Updates to Feasible Solution = "
             << numFeasibleSolutionUpdate
+            << "\n\tInitial Solution Cost = " << initialSolutionStats.first
+            << "\n\tNumber of Conflicts in Initial Solution = "
+            << initialSolutionStats.second
             << "\n\tSolution Cost = " << anytimeSolution.sumOfCosts
             << "\n\tNumber of failures = " << lnsInstance.numOfFailures
             << "\n\tSuccess = " << success << endl;

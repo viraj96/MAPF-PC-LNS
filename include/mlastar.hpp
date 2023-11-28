@@ -68,6 +68,6 @@ class MultiLabelSpaceTimeAStar : public SingleAgentSolver {
   MultiLabelSpaceTimeAStar(const Instance& instance, int agent)
       : SingleAgentSolver(instance, agent) {}
   string getName() const override { return "MLAStar"; }
-  AgentTaskPath findPathSegment(ConstraintTable& constraintTable, int startTime,
-                                int stage, int lb) override;
+  Path findPathSegment(ConstraintTable& constraintTable, int startTime,
+                       int stage, int lb) override;
 };

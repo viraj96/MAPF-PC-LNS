@@ -57,14 +57,17 @@ void MultiLabelSpaceTimeAStar::updatePath(const LLNode* goal, Path& path) {
   }
 }
 
-AgentTaskPath MultiLabelSpaceTimeAStar::findPathSegment(
-    ConstraintTable& constraintTable, int startTime, int stage, int lb) {
+Path MultiLabelSpaceTimeAStar::findPathSegment(ConstraintTable& constraintTable,
+                                               int startTime, int stage,
+                                               int lb) {
+  reset();
+
   int location = startLocation;
   if (stage != 0) {
     location = goalLocations[stage - 1];
   }
 
-  AgentTaskPath path;
+  Path path;
   path.beginTime = startTime;
   auto* start = new MultiLabelAStarNode(
       nullptr, location, 0, getHeuristic(stage, location), startTime, 0, stage);
@@ -106,8 +109,7 @@ AgentTaskPath MultiLabelSpaceTimeAStar::findPathSegment(
     for (int successor : successors) {
       int nextTimestep = current->timestep + 1;
 
-      if (max(constraintTable.size, constraintTable.latestTimestep) + 1 <
-          current->timestep) {
+      if (constraintTable.latestTimestep + 1 < current->timestep) {
         if (successor == current->location) {
           continue;
         }
