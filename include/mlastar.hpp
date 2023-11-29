@@ -64,6 +64,8 @@ class MultiLabelSpaceTimeAStar : public SingleAgentSolver {
   inline void pushNode(MultiLabelAStarNode* node);
   void updatePath(const LLNode* goal, Path& path);
 
+  void printSearchTree();
+
  public:
   MultiLabelSpaceTimeAStar(const Instance& instance, int agent)
       : SingleAgentSolver(instance, agent) {}

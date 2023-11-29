@@ -1,4 +1,5 @@
 #include "mlastar.hpp"
+#include <chrono>
 #include "astar.hpp"
 #include "common.hpp"
 
@@ -59,6 +60,7 @@ void MultiLabelSpaceTimeAStar::updatePath(const LLNode* goal, Path& path) {
 
 AgentTaskPath MultiLabelSpaceTimeAStar::findPathSegment(
     ConstraintTable& constraintTable, int startTime, int stage, int lb) {
+  high_resolution_clock::time_point timeStart = Time::now();
   int location = startLocation;
   if (stage != 0) {
     location = goalLocations[stage - 1];
@@ -66,8 +68,18 @@ AgentTaskPath MultiLabelSpaceTimeAStar::findPathSegment(
 
   AgentTaskPath path;
   path.beginTime = startTime;
+
+  int holdingTime = constraintTable.lengthMin;
+  if (stage == (int)goalLocations.size() - 1) {
+    holdingTime = constraintTable.getHoldingTime();
+  }
+
+  // getHeuristic(stage, location)
   auto* start = new MultiLabelAStarNode(
-      nullptr, location, 0, getHeuristic(stage, location), startTime, 0, stage);
+      nullptr, location, 0,
+      max(computeHeuristic(location, goalLocations[stage]),
+          holdingTime - startTime),
+      startTime, 0, stage);
 
   // Ensure that the constraint table is built before we call this
   numGenerated++;
@@ -79,10 +91,6 @@ AgentTaskPath MultiLabelSpaceTimeAStar::findPathSegment(
   start->focalHandle = focalList_.push(start);
   start->secondaryKeys.push_back(-start->gVal);
 
-  int holdingTime = constraintTable.lengthMin;
-  if (stage == (int)goalLocations.size() - 1) {
-    holdingTime = constraintTable.getHoldingTime();
-  }
   lowerBound_ = max(holdingTime - startTime, max(minFVal_, lb));
 
   while (!openList_.empty()) {
@@ -124,8 +132,9 @@ AgentTaskPath MultiLabelSpaceTimeAStar::findPathSegment(
       unsigned int stage = current->stage;
 
       int successorGVal = current->gVal + 1;
-      int successorHVal =
-          max(getHeuristic(stage, successor), holdingTime - nextTimestep);
+      // getHeuristic(stage, successor)
+      int successorHVal = max(computeHeuristic(successor, goalLocations[stage]),
+                              holdingTime - nextTimestep);
       int successorInternalConflicts = current->numOfConflicts;
       auto* next = new MultiLabelAStarNode(current, successor, successorGVal,
                                            successorHVal, nextTimestep,
@@ -183,7 +192,39 @@ AgentTaskPath MultiLabelSpaceTimeAStar::findPathSegment(
       }
       delete next;
     }
+    auto timeEnd = ((fsec)(Time::now() - timeStart)).count();
+    if (timeEnd > 30) {
+      printSearchTree();
+    }
   }
+
+  auto timeEnd = ((fsec)(Time::now() - timeStart)).count();
+  // std::cout << "Planning Time = " << timeEnd << std::endl;
+  if (timeEnd > 30) {
+    printSearchTree();
+  }
+
   releaseNodes();
   return path;
+}
+
+void MultiLabelSpaceTimeAStar::printSearchTree() {
+  std::cout << "Size of allNodesTable_: " << allNodesTable_.size() << "\n";
+  vector<MultiLabelAStarNode> allNodesSorted;
+  for (auto node : allNodesTable_) {
+    allNodesSorted.push_back(*node);
+  }
+  std::sort(allNodesSorted.begin(), allNodesSorted.end(),
+            [](const MultiLabelAStarNode& lhs, const MultiLabelAStarNode& rhs) {
+              return lhs.timestep <= rhs.timestep;
+            });
+  for (const auto& node : allNodesSorted) {
+    std::cout << "Location: " << node.location << ", Position: ("
+              << std::to_string(instance.getRowCoordinate(node.location))
+              << ", "
+              << std::to_string(instance.getColCoordinate(node.location))
+              << "), G-Val: " << node.gVal << ", H-Val: " << node.hVal
+              << ", Timestep: " << node.timestep << "\n";
+  }
+  std::cout << "\n\n";
 }

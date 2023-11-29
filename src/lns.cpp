@@ -293,7 +293,7 @@ bool LNS::extractFeasibleSolution() {
 
   // Only update the feasible solution if the new solution has better cost!
   if (incumbentSolution_.agentPaths.empty() ||
-      incumbentSolution_.sumOfCosts >= solution_.sumOfCosts) {
+      incumbentSolution_.sumOfCosts > solution_.sumOfCosts) {
     incumbentSolution_.numOfCols = instance_.numOfCols;
     incumbentSolution_.sumOfCosts = solution_.sumOfCosts;
     if ((int)incumbentSolution_.agentPaths.size() == 0) {
@@ -817,6 +817,8 @@ bool LNS::run() {
         // This is the case when the feasible solution was updated!
         quality = IterationQuality::bestSolutionYet;
         feasibleSolutionUpdated = true;
+      } else {
+        feasibleSolutionUpdated = false;
       }
     }
 
@@ -850,18 +852,14 @@ bool LNS::run() {
     }
 
     runtime = ((fsec)(Time::now() - plannerStartTime_)).count();
+    double costToLog = (feasibleSolutionUpdated) ? incumbentSolution_.sumOfCosts
+                                                 : solution_.sumOfCosts;
     iterationStats.emplace_back(runtime, "LNS", instance_.getAgentNum(),
-                                instance_.getTasksNum(), solution_.sumOfCosts,
+                                instance_.getTasksNum(), costToLog,
                                 feasibleSolutionUpdated, quality);
   }
 
-  printPaths();
-
-  std::cout << "MAPF-PC-LNS: "
-            << "\n\tRuntime = " << runtime
-            << "\n\tIterations = " << iterationStats.size()
-            << "\n\tSolution Cost = " << solution_.sumOfCosts << endl;
-
+  // printPaths();
   return !incumbentSolution_.agentPaths.empty();
 }
 

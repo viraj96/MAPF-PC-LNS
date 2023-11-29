@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
                      "Acceptance criteria for new solutions");
   desc.add_options()("genReport,g", po::value<bool>()->default_value(false),
                      "Whether to generate the report file that can be fed to "
-                     "CBS-PC for verificattion");
+                     "CBS-PC for verification");
   desc.add_options()("regretType,r",
                      po::value<string>()->default_value("absolute"),
                      "Type of regret metric to use i.e relative or absolute");
@@ -151,7 +151,10 @@ int main(int argc, char** argv) {
     saveFileForCBSPC.fileSave();
   }
 
-  double firstFeasibleSolutionTime = 0, numFeasibleSolutionUpdate = 0;
+  vector<double> feasibleSolutionIterations, feasibleSolutionRuntimes,
+      feasibleSolutionValues;
+  double firstFeasibleSolutionTime = 0, numFeasibleSolutionUpdate = 0,
+         counter = 0;
   if (success) {
     for (const IterationStats& iter : lnsInstance.iterationStats) {
       if (iter.feasibleSolutionFound) {
@@ -162,7 +165,11 @@ int main(int argc, char** argv) {
     for (const IterationStats& iter : lnsInstance.iterationStats) {
       if (iter.feasibleSolutionFound) {
         numFeasibleSolutionUpdate += 1;
+        feasibleSolutionIterations.push_back(counter);
+        feasibleSolutionRuntimes.push_back(iter.runtime);
+        feasibleSolutionValues.push_back(iter.sumOfCosts);
       }
+      counter++;
     }
   } else {
     firstFeasibleSolutionTime = INT_MAX;
@@ -199,8 +206,20 @@ int main(int argc, char** argv) {
       }
     }
   }
+  std::cout << "\n\nFeasible Solution Iterations: \n";
+  for (double iter : feasibleSolutionIterations) {
+    std::cout << iter << ",\t";
+  }
+  std::cout << "\nFeasible Solution Runtimes: \n";
+  for (double runtimes : feasibleSolutionRuntimes) {
+    std::cout << runtimes << ",\t";
+  }
+  std::cout << "\nFeasible Solution Values: \n";
+  for (double values : feasibleSolutionValues) {
+    std::cout << values << ",\t";
+  }
 
-  std::cout << "\nMAPF-PC-LNS: "
+  std::cout << "\n\nMAPF-PC-LNS: "
             << "\n\tRuntime = " << lnsInstance.runtime
             << "\n\tIterations = " << lnsInstance.iterationStats.size()
             << "\n\tFirst Feasible Solution Runtime = "
