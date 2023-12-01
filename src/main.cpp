@@ -102,7 +102,8 @@ int main(int argc, char** argv) {
 
   // Need to store the seed for debugging
   auto srandSeed = (int)time(nullptr);
-  // srandSeed = 1700258898;
+  std::cout << "srandSeed = " << srandSeed << std::endl;
+  // srandSeed = 1701295952;
   srand(srandSeed);
 
   Instance instance(vm["map"].as<string>(), vm["agents"].as<string>(),

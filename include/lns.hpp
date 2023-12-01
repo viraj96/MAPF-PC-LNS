@@ -103,12 +103,16 @@ struct Agent {
     assert(std::find(taskAssignments.begin(), taskAssignments.end(), task) !=
            taskAssignments.end());
     int taskPosition = getLocalTaskIndex(task);
-    int previousTask = -1, nextTask = -1;
-    if (taskPosition != 0) {
-      previousTask = taskAssignments[taskPosition - 1];
+    int previousTask = -1, nextTask = -1,
+        previousTaskPosition = taskPosition - 1,
+        nextTaskPosition = taskPosition + 1;
+    while (previousTaskPosition >= 0 && previousTask == -1) {
+      previousTask = taskAssignments[previousTaskPosition];
+      previousTaskPosition--;
     }
-    if (taskPosition != (int)taskAssignments.size() - 1) {
-      nextTask = taskAssignments[taskPosition + 1];
+    while (nextTaskPosition < (int)taskAssignments.size() && nextTask == -1) {
+      nextTask = taskAssignments[nextTaskPosition];
+      nextTaskPosition++;
     }
 
     intraPrecedenceConstraints.erase(
@@ -475,18 +479,22 @@ class LNS {
 
   void buildConstraintTable(ConstraintTable& constraintTable, int task);
 
-  void buildConstraintTable(ConstraintTable& constraintTable, int task,
-                            int taskLocation, vector<AgentTaskPath>* taskPaths,
-                            vector<pair<int, int>>* precedenceConstraints);
+  void buildConstraintTable(ConstraintTable& constraintTable,
+                            TaskRegretPacket taskPacket, int taskLocation,
+                            vector<vector<int>>* agentTaskAssignments,
+                            vector<vector<AgentTaskPath>>* agentTaskPaths,
+                            vector<pair<int, int>>* precedenceConstraints,
+                            bool findingNextTask = false);
 
-  int extractOldLocalTaskIndex(int task, vector<int> taskQueue);
+  int extractOldLocalTaskIndex(int task, vector<int> oldTaskQueue,
+                               vector<int> newTaskQueue = {});
   set<int> reachableSet(int source, vector<vector<int>> edgeList);
 
   bool computeRegret();
   bool computeRegretForTask(int task);
   void computeRegretForTaskWithAgent(
-      TaskRegretPacket regretPacket, vector<int>* taskAssignments,
-      vector<AgentTaskPath>* taskPaths,
+      TaskRegretPacket regretPacket, vector<vector<int>>* agentTaskAssignments,
+      vector<vector<AgentTaskPath>>* agentTaskPaths,
       vector<pair<int, int>>* precedenceConstraints,
       pairing_heap<Utility, compare<Utility::CompareUtilities>>* serviceTimes);
 
@@ -495,8 +503,9 @@ class LNS {
                             std::optional<pair<bool, int>> committingNextTask);
 
   std::variant<bool, Utility> insertTask(
-      TaskRegretPacket regretPacket, vector<AgentTaskPath>* taskPaths,
-      vector<int>* taskAssignments,
+      TaskRegretPacket regretPacket,
+      vector<vector<AgentTaskPath>>* agentTaskPaths,
+      vector<vector<int>>* agentTaskAssignments,
       vector<pair<int, int>>* precedenceConstraints);
   void insertBestRegretTask(TaskRegretPacket bestRegretPacket);
 

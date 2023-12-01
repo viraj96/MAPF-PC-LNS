@@ -15,18 +15,22 @@ set<Conflicts> extractNConflicts(int size, const set<Conflicts>& conflicts);
 struct MovingMetrics {
   int size{}, oldestValue = 0;
   vector<double> conflictNum{}, conflictSquareNum{}, costNum{}, costSquareNum{};
-  double sumOfNumConflicts{}, sumOfNumConflictsSquare{}, sumOfNumCosts{},
-      sumOfNumCostsSquare{}, lnsConflictWeight{}, lnsCostWeight{};
+  double lnsConflictWeight{}, lnsCostWeight{}, sumOfNumConflicts{},
+      sumOfNumConflictsSquare{}, sumOfNumCosts{}, sumOfNumCostsSquare{};
 
-  MovingMetrics(int size, int lnsConflictWeight, int lnsCostWeight,
-                int numberOfConflicts, int sumOfCosts)
-      : size(size),
-        lnsConflictWeight(lnsConflictWeight),
-        lnsCostWeight(lnsCostWeight) {
-    conflictNum.resize(size, numberOfConflicts);
-    conflictSquareNum.resize(size, pow(numberOfConflicts, 2));
-    costNum.resize(size, sumOfCosts);
-    costSquareNum.resize(size, pow(sumOfCosts, 2));
+  MovingMetrics(int size, double conflictWeight, double costWeight,
+                int numberOfConflicts, int sumOfCosts) {
+    this->size = size;
+    this->lnsConflictWeight = conflictWeight;
+    this->lnsCostWeight = costWeight;
+    conflictNum.resize(size);
+    conflictNum[oldestValue] = numberOfConflicts;
+    conflictSquareNum.resize(size);
+    conflictSquareNum[oldestValue] = pow(numberOfConflicts, 2);
+    costNum.resize(size);
+    costNum[oldestValue] = sumOfCosts;
+    costSquareNum.resize(size);
+    costSquareNum[oldestValue] = pow(sumOfCosts, 2);
     sumOfNumConflicts =
         std::accumulate(begin(conflictNum), end(conflictNum), 0.0);
     sumOfNumConflictsSquare =

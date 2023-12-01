@@ -26,6 +26,8 @@ LNS::LNS(int numOfIterations, const Instance& instance,
   tolerance_ = parameters.tolerance;
   shawDistanceWeight_ = parameters.shawDistanceWeight;
   shawTemporalWeight_ = parameters.shawTemporalWeight;
+  lnsConflictWeight_ = parameters.lnsConflictWeight;
+  lnsCostWeight_ = parameters.lnsCostWeight;
   initialSolutionStrategy = parameters.initialSolutionStrategy;
   destroyHeuristic = parameters.destroyHeuristic;
   acceptanceCriteria = parameters.acceptanceCriteria;
@@ -323,7 +325,10 @@ void LNS::randomRemoval() {
 
   // Randomly choose a task and remove it from the solution and add it to the neighborhood until neighborhood size reaches some threshold
   std::random_device device;
-  std::mt19937 engine(device());
+  auto dev = device();
+  std::cout << "Dev = " << dev << std::endl;
+  std::mt19937 engine(dev);
+  // std::mt19937 engine(1239556316);
   std::uniform_int_distribution<int> distribution(0,
                                                   instance_.getTasksNum() - 1);
   while ((int)lnsNeighborhood_.removedTasks.size() < neighborSize_) {
@@ -868,6 +873,20 @@ void LNS::prepareNextIteration() {
 
   // Find the tasks that are following the earliest conflicting task as their paths need to be invalidated
   vector<vector<int>> successors = instance_.getSuccessors();
+  // vector<pair<int, int>> precedenceConstraints =
+  //     instance_.getInputPrecedenceConstraints();
+  // vector<vector<int>> successors(instance_.getTasksNum());
+
+  // for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+  //   precedenceConstraints.insert(
+  //       precedenceConstraints.end(),
+  //       solution_.agents[agent].intraPrecedenceConstraints.begin(),
+  //       solution_.agents[agent].intraPrecedenceConstraints.end());
+  // }
+
+  // for (pair<int, int> precConstraint : precedenceConstraints) {
+  //   successors[precConstraint.first].push_back(precConstraint.second);
+  // }
 
   // We need to include all the successors of the original conflicted tasks to ensure that we dont try to find their paths later down the line because otherwise we will face errors since the ancestors of those successor tasks wont have paths.
   for (Conflicts conflictTask : lnsNeighborhood_.removedTasks) {
@@ -992,161 +1011,166 @@ bool LNS::computeRegretForTask(int task) {
 
   // The task has to start after the earliest time step but needs to finish before the latest time step. However we cannot give any guarantee on the latest timestep so we only work with the earliest timestep
   int earliestTimestep = 0;
-  vector<int> inputPlanningOrder = instance_.getInputPlanningOrder();
 
-  vector<vector<int>> ancestors = instance_.getAncestors();
+  vector<pair<int, int>> precedenceConstraints =
+      instance_.getInputPrecedenceConstraints();
+
+  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+    precedenceConstraints.insert(
+        precedenceConstraints.end(),
+        solution_.agents[agent].intraPrecedenceConstraints.begin(),
+        solution_.agents[agent].intraPrecedenceConstraints.end());
+  }
+
+  vector<vector<int>> ancestors(instance_.getTasksNum());
+  for (pair<int, int> precConstraint : precedenceConstraints) {
+    ancestors[precConstraint.second].push_back(precConstraint.first);
+  }
   set<int> ancestorsOfTask = reachableSet(task, ancestors);
   ancestorsOfTask.erase(task);
 
+  vector<vector<int>> agentTaskAssignments(instance_.getAgentNum());
+  vector<vector<AgentTaskPath>> agentTaskPaths(instance_.getAgentNum());
+  vector<vector<pair<int, int>>> agentPrecedenceConstraints(
+      instance_.getAgentNum());
+
+  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+    agentTaskAssignments[agent] = solution_.agents[agent].taskAssignments;
+    agentTaskPaths[agent] = solution_.agents[agent].taskPaths;
+  }
+
+  for (int ancestorTask : ancestorsOfTask) {
+    if (lnsNeighborhood_.commitedTasks.count(ancestorTask) > 0 &&
+        !lnsNeighborhood_.commitedTasks[ancestorTask]) {
+      // This task's path will not exist currently!
+      int ancestorTaskAgent = previousSolution_.taskAgentMap[ancestorTask];
+      assert(ancestorTask != UNASSIGNED);
+      int ancestorTaskLocalIndex =
+          previousSolution_.getLocalTaskIndex(ancestorTaskAgent, ancestorTask);
+      int ancestorTaskLocalIndexRelativeToSolution = extractOldLocalTaskIndex(
+          ancestorTask,
+          previousSolution_.agents[ancestorTaskAgent].taskAssignments,
+          agentTaskAssignments[ancestorTaskAgent]);
+      agentTaskAssignments[ancestorTaskAgent].insert(
+          agentTaskAssignments[ancestorTaskAgent].begin() +
+              ancestorTaskLocalIndexRelativeToSolution,
+          ancestorTask);
+      agentTaskPaths[ancestorTaskAgent].insert(
+          agentTaskPaths[ancestorTaskAgent].begin() +
+              ancestorTaskLocalIndexRelativeToSolution,
+          previousSolution_.agents[ancestorTaskAgent]
+              .taskPaths[ancestorTaskLocalIndex]);
+    }
+  }
+
+  precedenceConstraints = instance_.getInputPrecedenceConstraints();
+  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+    for (int localTask = 0; localTask < (int)agentTaskAssignments[agent].size();
+         localTask++) {
+
+      if (localTask > 0) {
+        agentPrecedenceConstraints[agent].emplace_back(
+            agentTaskAssignments[agent][localTask - 1],
+            agentTaskAssignments[agent][localTask]);
+        agentTaskPaths[agent][localTask].beginTime =
+            agentTaskPaths[agent][localTask - 1].endTime();
+      } else {
+        agentTaskPaths[agent][localTask].beginTime = 0;
+      }
+
+      if ((localTask == 0 &&
+           agentTaskPaths[agent][localTask].front().location !=
+               instance_.getStartLocations()[agent]) ||
+          (localTask > 0 &&
+           agentTaskPaths[agent][localTask - 1].path.back().location !=
+               agentTaskPaths[agent][localTask].path.front().location)) {
+        // if (lnsNeighborhood_.patchedTasks.count(
+        //         agentTaskAssignments[agent][localTask]) == 0) {
+
+        int startTime = 0;
+        if (localTask > 0) {
+          startTime = agentTaskPaths[agent][localTask - 1].endTime();
+        }
+        vector<int> goalLocations =
+            instance_.getTaskLocations(agentTaskAssignments[agent]);
+        MultiLabelSpaceTimeAStar localPlanner =
+            MultiLabelSpaceTimeAStar(instance_, agent);
+        localPlanner.setGoalLocations(goalLocations);
+        localPlanner.computeHeuristics();
+
+        ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
+        TaskRegretPacket taskPacket = {agentTaskAssignments[agent][localTask],
+                                       agent, localTask, -1};
+        // TODO: Possible incomplete precedence constraints here!
+        buildConstraintTable(constraintTable, taskPacket,
+                             goalLocations[localTask], &agentTaskAssignments,
+                             &agentTaskPaths, &precedenceConstraints);
+        AgentTaskPath path = localPlanner.findPathSegment(
+            constraintTable, startTime, localTask, 0);
+        // We must be able to find the path for the next task. If not then we cannot move forward!
+        assert(!path.empty());
+        agentTaskPaths[agent][localTask] = path;
+
+        // } else {
+        //   int taskAgent =
+        //       previousSolution_
+        //           .taskAgentMap[agentTaskAssignments[agent][localTask]];
+        //   assert(taskAgent != UNASSIGNED);
+        //   int taskLocalIndex = previousSolution_.getLocalTaskIndex(
+        //       taskAgent, agentTaskAssignments[agent][localTask]);
+        //   agentTaskPaths[agent][localTask] =
+        //       previousSolution_.agents[taskAgent].taskPaths[taskLocalIndex];
+        // }
+      }
+    }
+    precedenceConstraints.insert(precedenceConstraints.end(),
+                                 agentPrecedenceConstraints[agent].begin(),
+                                 agentPrecedenceConstraints[agent].end());
+  }
+
+  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+    for (int localTask = 0; localTask < (int)agentTaskAssignments[agent].size();
+         localTask++) {
+      if (localTask > 0) {
+        assert(agentTaskPaths[agent][localTask - 1].path.back().location ==
+               agentTaskPaths[agent][localTask].path.front().location);
+      } else {
+        assert(agentTaskPaths[agent][localTask].front().location ==
+               instance_.getStartLocations()[agent]);
+      }
+    }
+  }
+
+  ancestors.clear();
+  ancestors.resize(instance_.getTasksNum());
+  for (pair<int, int> precConstraint : precedenceConstraints) {
+    ancestors[precConstraint.second].push_back(precConstraint.first);
+  }
+  ancestorsOfTask = reachableSet(task, ancestors);
+  ancestorsOfTask.erase(task);
+
+  for (int ancestorTask : ancestorsOfTask) {
+    int ancestorTaskAgent = UNDEFINED;
+    if (lnsNeighborhood_.commitedTasks.count(ancestorTask) > 0 &&
+        !lnsNeighborhood_.commitedTasks[ancestorTask]) {
+      ancestorTaskAgent = previousSolution_.taskAgentMap[ancestorTask];
+    } else {
+      ancestorTaskAgent = solution_.taskAgentMap[ancestorTask];
+    }
+    int ancestorTaskPosition =
+        find(agentTaskAssignments[ancestorTaskAgent].begin(),
+             agentTaskAssignments[ancestorTaskAgent].end(), ancestorTask) -
+        agentTaskAssignments[ancestorTaskAgent].begin();
+    earliestTimestep = max(
+        earliestTimestep,
+        agentTaskPaths[ancestorTaskAgent][ancestorTaskPosition].endTime() + 1);
+  }
+
   for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
 
-    // Gather the task assignments of this agent with any previous invalidated tasks included as needed relative to the target task
-    vector<int> temporaryTaskAssignments = solution_.getAgentGlobalTasks(agent),
-                newlyInsertedTasks;
-    int taskIndex =
-        find(inputPlanningOrder.begin(), inputPlanningOrder.end(), task) -
-        inputPlanningOrder.begin();
-    for (int i = 0; i < taskIndex; i++) {
-      // We only need those tasks who are the actual ancestors of this task
-      if (ancestorsOfTask.count(inputPlanningOrder[i]) > 0 &&
-          lnsNeighborhood_.commitedTasks.count(inputPlanningOrder[i]) > 0 &&
-          !lnsNeighborhood_.commitedTasks[inputPlanningOrder[i]] &&
-          previousSolution_.taskAgentMap[inputPlanningOrder[i]] == agent) {
-        int localTaskPositionRelativeToSolution = extractOldLocalTaskIndex(
-            inputPlanningOrder[i],
-            previousSolution_.agents[agent].taskAssignments);
-        temporaryTaskAssignments.insert(temporaryTaskAssignments.begin() +
-                                            localTaskPositionRelativeToSolution,
-                                        inputPlanningOrder[i]);
-        newlyInsertedTasks.push_back(inputPlanningOrder[i]);
-      }
-    }
-
-    // Gather the paths of the tasks that need to be done before this task
-    vector<AgentTaskPath> temporaryTaskPaths;
-    temporaryTaskPaths.resize(instance_.getTasksNum());
-    // Gather the corresponding task paths and stitch them together
-    for (int i = 0; i < (int)temporaryTaskAssignments.size(); i++) {
-      int temporaryTask = temporaryTaskAssignments[i];
-      if (lnsNeighborhood_.commitedTasks.count(temporaryTask) > 0 &&
-          !lnsNeighborhood_.commitedTasks[temporaryTask]) {
-        int temporaryTaskAgent = previousSolution_.taskAgentMap[temporaryTask];
-        assert(temporaryTaskAgent != UNASSIGNED);
-        int temporaryTaskLocalIndex = previousSolution_.getLocalTaskIndex(
-            temporaryTaskAgent, temporaryTask);
-        AgentTaskPath temporaryTaskPath =
-            previousSolution_.agents[temporaryTaskAgent]
-                .taskPaths[temporaryTaskLocalIndex];
-        // Fix the begin time such that this task starts when the previous task ends
-        if (i != 0) {
-          temporaryTaskPath.beginTime =
-              temporaryTaskPaths[temporaryTaskAssignments[i - 1]].endTime();
-        }
-        temporaryTaskPaths[temporaryTask] = temporaryTaskPath;
-      } else {
-        // In this case the previous task was recently inserted because it was in the conflict set and not committed to. Further the next task was patched in the prepare iteration function
-        // This condition depends on the fact that the previous if condition would have triggered in earlier iteration of this loop
-        if (i > 0 &&
-            find(newlyInsertedTasks.begin(), newlyInsertedTasks.end(),
-                 temporaryTaskAssignments[i - 1]) != newlyInsertedTasks.end() &&
-            lnsNeighborhood_.patchedTasks.count(temporaryTask) > 0) {
-          int temporaryTaskAgent =
-              previousSolution_.taskAgentMap[temporaryTask];
-          assert(temporaryTaskAgent != UNASSIGNED);
-          int temporaryTaskLocalIndex = previousSolution_.getLocalTaskIndex(
-              temporaryTaskAgent, temporaryTask);
-          AgentTaskPath temporaryTaskPath =
-              previousSolution_.agents[temporaryTaskAgent]
-                  .taskPaths[temporaryTaskLocalIndex];
-          temporaryTaskPath.beginTime =
-              temporaryTaskPaths[temporaryTaskAssignments[i - 1]].endTime();
-          temporaryTaskPaths[temporaryTask] = temporaryTaskPath;
-        } else {
-          int temporaryTaskAgent = solution_.taskAgentMap[temporaryTask];
-          assert(temporaryTaskAgent != UNASSIGNED);
-          int temporaryTaskLocalIndex =
-              solution_.getLocalTaskIndex(temporaryTaskAgent, temporaryTask);
-          AgentTaskPath temporaryTaskPath =
-              solution_.agents[temporaryTaskAgent]
-                  .taskPaths[temporaryTaskLocalIndex];
-          // Fix the begin time such that this task starts when the previous task ends
-          if (i != 0) {
-            temporaryTaskPath.beginTime =
-                temporaryTaskPaths[temporaryTaskAssignments[i - 1]].endTime();
-          }
-          temporaryTaskPaths[temporaryTask] = temporaryTaskPath;
-        }
-      }
-    }
-
-    // Gather the paths of the tasks that need to be done before this task but have been assigned to some other agents
-    // This is for agents apart from "agent" i.e the loop variable
-    set<int> agentsNewlyAddedTasksBelongTo;
-    for (int i = 0; i < taskIndex; i++) {
-      int ancestorTask = inputPlanningOrder[i];
-      // Only consider those tasks that are the actual ancestors of this task
-      if (ancestorsOfTask.count(ancestorTask) > 0 &&
-          temporaryTaskPaths[ancestorTask].empty()) {
-        if (lnsNeighborhood_.commitedTasks.count(ancestorTask) > 0 &&
-            !lnsNeighborhood_.commitedTasks[ancestorTask]) {
-          int temporaryTaskAgent = previousSolution_.taskAgentMap[ancestorTask];
-          assert(temporaryTaskAgent != UNASSIGNED);
-          int temporaryTaskLocalIndex = previousSolution_.getLocalTaskIndex(
-              temporaryTaskAgent, ancestorTask);
-          AgentTaskPath temporaryTaskPath =
-              previousSolution_.agents[temporaryTaskAgent]
-                  .taskPaths[temporaryTaskLocalIndex];
-          // TODO: Should we need to fix the begin times of these paths?
-          temporaryTaskPaths[ancestorTask] = temporaryTaskPath;
-          agentsNewlyAddedTasksBelongTo.insert(temporaryTaskAgent);
-        }
-        // In this case some ancestor was inserted that was not there before in the previous if condition of this loop. Then we need to use the previous solution's path for the next task in some agent's queue
-        else {
-          int temporaryTaskAgent = solution_.taskAgentMap[ancestorTask];
-          assert(temporaryTaskAgent != UNASSIGNED);
-          if (agentsNewlyAddedTasksBelongTo.count(temporaryTaskAgent) > 0 &&
-              lnsNeighborhood_.patchedTasks.count(ancestorTask) > 0) {
-            int temporaryTaskLocalIndex = previousSolution_.getLocalTaskIndex(
-                temporaryTaskAgent, ancestorTask);
-            AgentTaskPath temporaryTaskPath =
-                previousSolution_.agents[temporaryTaskAgent]
-                    .taskPaths[temporaryTaskLocalIndex];
-            // TODO: Should we need to fix the begin times of these paths?
-            temporaryTaskPaths[ancestorTask] = temporaryTaskPath;
-          } else {
-            int temporaryTaskLocalIndex =
-                solution_.getLocalTaskIndex(temporaryTaskAgent, ancestorTask);
-            AgentTaskPath temporaryTaskPath =
-                solution_.agents[temporaryTaskAgent]
-                    .taskPaths[temporaryTaskLocalIndex];
-            // TODO: Should we need to fix the begin times of these paths?
-            temporaryTaskPaths[ancestorTask] = temporaryTaskPath;
-          }
-        }
-      }
-    }
-
-    vector<vector<int>> ancestors = instance_.getAncestors();
-    set<int> setOfTasksToComplete = reachableSet(task, ancestors);
-    setOfTasksToComplete.erase(task);
-
-    for (int ancestor : setOfTasksToComplete) {
-      assert(!temporaryTaskPaths[ancestor].empty());
-      earliestTimestep =
-          max(earliestTimestep, temporaryTaskPaths[ancestor].endTime());
-    }
-
-    // Append the agent's internal precedence constraints to the input precedence constraints
-    vector<pair<int, int>> precedenceConstraints =
-        instance_.getInputPrecedenceConstraints();
-    for (int i = 0; i < (int)temporaryTaskAssignments.size() - 1; i++) {
-      precedenceConstraints.emplace_back(temporaryTaskAssignments[i],
-                                         temporaryTaskAssignments[i + 1]);
-    }
-
     TaskRegretPacket regretPacket = {task, agent, -1, earliestTimestep};
-    computeRegretForTaskWithAgent(regretPacket, &temporaryTaskAssignments,
-                                  &temporaryTaskPaths, &precedenceConstraints,
+    computeRegretForTaskWithAgent(regretPacket, &agentTaskAssignments,
+                                  &agentTaskPaths, &precedenceConstraints,
                                   &serviceTimes);
   }
 
@@ -1174,24 +1198,27 @@ bool LNS::computeRegretForTask(int task) {
 }
 
 void LNS::computeRegretForTaskWithAgent(
-    TaskRegretPacket regretPacket, vector<int>* taskAssignments,
-    vector<AgentTaskPath>* taskPaths,
+    TaskRegretPacket regretPacket, vector<vector<int>>* agentTaskAssignments,
+    vector<vector<AgentTaskPath>>* agentTaskPaths,
     vector<pair<int, int>>* precedenceConstraints,
     pairing_heap<Utility, compare<Utility::CompareUtilities>>* serviceTimes) {
 
   // Compute the first position along the agent's task assignments where we can insert this task
   int firstValidPosition = 0;
-  for (int j = (int)taskAssignments->size() - 1; j >= 0; j--) {
-    int taskID = (*taskAssignments)[j];
-    if ((*taskPaths)[taskID].endTime() <= regretPacket.earliestTimestep) {
+  for (int j = (int)(*agentTaskAssignments)[regretPacket.agent].size() - 1;
+       j >= 0; j--) {
+    int beginTime = (*agentTaskPaths)[regretPacket.agent][j].beginTime,
+        endTime = (*agentTaskPaths)[regretPacket.agent][j].endTime();
+    if ((regretPacket.earliestTimestep > endTime) ||
+        (regretPacket.earliestTimestep <= endTime &&
+         regretPacket.earliestTimestep >= beginTime)) {
       firstValidPosition = j + 1;
       break;
     }
   }
 
-  assert(firstValidPosition >= 0);
-
-  for (int j = firstValidPosition; j <= (int)taskAssignments->size(); j++) {
+  for (int j = firstValidPosition;
+       j <= (int)(*agentTaskAssignments)[regretPacket.agent].size(); j++) {
 
     if (find_if(begin(lnsNeighborhood_.removedTasks),
                 end(lnsNeighborhood_.removedTasks),
@@ -1205,13 +1232,13 @@ void LNS::computeRegretForTaskWithAgent(
     }
     regretPacket.taskPosition = j;
     // Create a copy of the task assignments, paths and corresponding precedence constraints so that they dont get modified
-    vector<AgentTaskPath> temporaryTaskPaths = *taskPaths;
-    vector<int> temporaryTaskAssignments = *taskAssignments;
+    vector<vector<AgentTaskPath>> temporaryAgentTaskPaths = *agentTaskPaths;
+    vector<vector<int>> temporaryAgentTaskAssignments = *agentTaskAssignments;
     vector<pair<int, int>> temporaryPrecedenceConstraints =
         *precedenceConstraints;
-    std::variant<bool, Utility> insertCulmination =
-        insertTask(regretPacket, &temporaryTaskPaths, &temporaryTaskAssignments,
-                   &temporaryPrecedenceConstraints);
+    std::variant<bool, Utility> insertCulmination = insertTask(
+        regretPacket, &temporaryAgentTaskPaths, &temporaryAgentTaskAssignments,
+        &temporaryPrecedenceConstraints);
     if (std::holds_alternative<Utility>(insertCulmination)) {
       serviceTimes->push(std::get<Utility>(insertCulmination));
     }
@@ -1220,41 +1247,55 @@ void LNS::computeRegretForTaskWithAgent(
 
 // Need the task paths, assignments and precedence constraints as pointers so that we can reuse this code when commiting as we can make in-place changes to these data-structures
 std::variant<bool, Utility> LNS::insertTask(
-    TaskRegretPacket regretPacket, vector<AgentTaskPath>* taskPaths,
-    vector<int>* taskAssignments,
+    TaskRegretPacket regretPacket,
+    vector<vector<AgentTaskPath>>* agentTaskPaths,
+    vector<vector<int>>* agentTaskAssignments,
     vector<pair<int, int>>* precedenceConstraints) {
 
   double pathSizeChange = 0;
   int startTime = 0, previousTask = -1, nextTask = -1;
 
   // The task paths are all the task paths when we dont commit but if we commit they will be agent specific task paths
-  vector<AgentTaskPath>& taskPathsRef = *taskPaths;
-  vector<int>& taskAssignmentsRef = *taskAssignments;
+  vector<vector<AgentTaskPath>>& agentTaskPathsRef = *agentTaskPaths;
+  vector<vector<int>>& agentTaskAssignmentsRef = *agentTaskAssignments;
   vector<pair<int, int>>& precedenceConstraintsRef = *precedenceConstraints;
 
-  int agentTasksSize = (int)taskAssignmentsRef.size();
+  int agentTasksSize = (int)agentTaskAssignmentsRef[regretPacket.agent].size();
+  double value = INT_MAX;
 
   // In this case we are inserting a task not at the last position
   if (regretPacket.taskPosition < agentTasksSize) {
 
-    nextTask = taskAssignmentsRef[regretPacket.taskPosition];
-    taskAssignmentsRef.insert(
-        taskAssignmentsRef.begin() + regretPacket.taskPosition,
+    nextTask =
+        agentTaskAssignmentsRef[regretPacket.agent][regretPacket.taskPosition];
+    pathSizeChange =
+        (double)agentTaskPathsRef[regretPacket.agent][regretPacket.taskPosition]
+            .size();
+
+    agentTaskPathsRef[regretPacket.agent][regretPacket.taskPosition] =
+        AgentTaskPath();
+
+    agentTaskAssignmentsRef[regretPacket.agent].insert(
+        agentTaskAssignmentsRef[regretPacket.agent].begin() +
+            regretPacket.taskPosition,
         regretPacket.task);
+    agentTaskPathsRef[regretPacket.agent].insert(
+        agentTaskPathsRef[regretPacket.agent].begin() +
+            regretPacket.taskPosition,
+        AgentTaskPath());
 
     // Invalidate the path of the next task
     // Compute the path size of the next task before you remove it!
-    taskPathsRef[regretPacket.task] = AgentTaskPath();
-    pathSizeChange = (double)taskPathsRef[nextTask].size();
-    taskPathsRef[nextTask] = AgentTaskPath();
-
     precedenceConstraintsRef.emplace_back(regretPacket.task, nextTask);
 
     // If we are NOT inserting at the start position then we need to take care of the previous task as well
     if (regretPacket.taskPosition != 0) {
-      previousTask = taskAssignmentsRef[regretPacket.taskPosition - 1];
+      previousTask = agentTaskAssignmentsRef[regretPacket.agent]
+                                            [regretPacket.taskPosition - 1];
       // TODO: Technically the task can start being processed before the previous task ends. This is more conservative but need to check if there are better ways to tackle this.
-      startTime = taskPathsRef[previousTask].endTime();
+      startTime =
+          agentTaskPathsRef[regretPacket.agent][regretPacket.taskPosition - 1]
+              .endTime();
       precedenceConstraintsRef.erase(
           std::remove_if(
               precedenceConstraintsRef.begin(), precedenceConstraintsRef.end(),
@@ -1268,112 +1309,156 @@ std::variant<bool, Utility> LNS::insertTask(
   // In this case we are inserting at the very end
   else if (regretPacket.taskPosition == agentTasksSize && agentTasksSize != 0) {
 
-    previousTask = taskAssignmentsRef[regretPacket.taskPosition - 1];
-    startTime = taskPathsRef[previousTask].endTime();
+    previousTask = agentTaskAssignmentsRef[regretPacket.agent]
+                                          [regretPacket.taskPosition - 1];
+    startTime =
+        agentTaskPathsRef[regretPacket.agent][regretPacket.taskPosition - 1]
+            .endTime();
 
-    taskAssignmentsRef.push_back(regretPacket.task);
+    agentTaskAssignmentsRef[regretPacket.agent].push_back(regretPacket.task);
     precedenceConstraintsRef.emplace_back(previousTask, regretPacket.task);
+    agentTaskPathsRef[regretPacket.agent].emplace_back();
   } else if (agentTasksSize == 0) {
     // This is the rare-case when the agent has no tasks assigned to it.
     assert(regretPacket.taskPosition == 0);
 
     startTime = 0;
-    taskAssignmentsRef.push_back(regretPacket.task);
+    agentTaskAssignmentsRef[regretPacket.agent].push_back(regretPacket.task);
+    agentTaskPathsRef[regretPacket.agent].emplace_back();
   }
 
   if (nextTask != -1) {
     // The task paths reference does not have ancestor information about next task, so we need to add those in
-    set<int> agentsNewlyAddedTasksBelongTo;
-    vector<int> planningOrder = instance_.getInputPlanningOrder();
 
-    vector<vector<int>> ancestors = instance_.getAncestors();
+    vector<vector<int>> ancestors(instance_.getTasksNum());
+    for (pair<int, int> precConstraint : precedenceConstraintsRef) {
+      ancestors[precConstraint.second].push_back(precConstraint.first);
+    }
     set<int> ancestorsOfNextTask = reachableSet(nextTask, ancestors);
     ancestorsOfNextTask.erase(nextTask);
 
-    int nextTaskIndex =
-        find(planningOrder.begin(), planningOrder.end(), nextTask) -
-        planningOrder.begin();
-    for (int i = 0; i < nextTaskIndex; i++) {
-      int nextTaskAncestor = planningOrder[i];
-      // The ancestor of the next task is not assigned. It can either be in the previous solution if and only if the ancestor was in the conflict set but not committed it. Otherwise it must be in the solution.
-      // We only care about the ancestor that is part of the actual ancestor of this next task
-      if (ancestorsOfNextTask.count(nextTaskAncestor) > 0 &&
-          taskPathsRef[nextTaskAncestor].empty()) {
-        if (lnsNeighborhood_.commitedTasks.count(nextTaskAncestor) > 0 &&
-            !lnsNeighborhood_.commitedTasks[nextTaskAncestor]) {
-          int nextTaskAncestorAgent =
-              previousSolution_.taskAgentMap[nextTaskAncestor];
-          assert(nextTaskAncestorAgent != UNASSIGNED);
-          int nextTaskAncestorLocalIndex = previousSolution_.getLocalTaskIndex(
+    for (int nextTaskAncestor : ancestorsOfNextTask) {
+      if (lnsNeighborhood_.commitedTasks.count(nextTaskAncestor) > 0 &&
+          !lnsNeighborhood_.commitedTasks[nextTaskAncestor] &&
+          nextTaskAncestor != regretPacket.task) {
+        // This task's path will not exist currently!
+        int nextTaskAncestorAgent =
+            previousSolution_.taskAgentMap[nextTaskAncestor];
+        assert(nextTaskAncestor != UNASSIGNED);
+        if (std::find(agentTaskAssignmentsRef[nextTaskAncestorAgent].begin(),
+                      agentTaskAssignmentsRef[nextTaskAncestorAgent].end(),
+                      nextTaskAncestor) ==
+            agentTaskAssignmentsRef[nextTaskAncestorAgent].end()) {
+
+          int ancestorTaskLocalIndex = previousSolution_.getLocalTaskIndex(
               nextTaskAncestorAgent, nextTaskAncestor);
-          // TODO: Should we change the begin time of this task?
-          taskPathsRef[nextTaskAncestor] =
+          int ancestorTaskLocalIndexRelativeToSolution =
+              extractOldLocalTaskIndex(
+                  nextTaskAncestor,
+                  previousSolution_.agents[nextTaskAncestorAgent]
+                      .taskAssignments,
+                  agentTaskAssignmentsRef[nextTaskAncestorAgent]);
+          agentTaskAssignmentsRef[nextTaskAncestorAgent].insert(
+              agentTaskAssignmentsRef[nextTaskAncestorAgent].begin() +
+                  ancestorTaskLocalIndexRelativeToSolution,
+              nextTaskAncestor);
+          agentTaskPathsRef[nextTaskAncestorAgent].insert(
+              agentTaskPathsRef[nextTaskAncestorAgent].begin() +
+                  ancestorTaskLocalIndexRelativeToSolution,
               previousSolution_.agents[nextTaskAncestorAgent]
-                  .taskPaths[nextTaskAncestorLocalIndex];
-          // If we are updating the regret packet's agent task queue then we need to update the precedence constraints as well
-          if (nextTaskAncestorAgent == regretPacket.agent) {
-            taskAssignmentsRef.insert(
-                taskAssignmentsRef.begin() + nextTaskAncestorLocalIndex,
-                nextTaskAncestor);
-            int localPreviousTask = -1, localNextTask = -1;
-            if (nextTaskAncestorLocalIndex != 0) {
-              previousTask = taskAssignmentsRef[nextTaskAncestorLocalIndex - 1];
-            }
-            if (nextTaskAncestorLocalIndex !=
-                (int)taskAssignmentsRef.size() - 1) {
-              nextTask = taskAssignmentsRef[nextTaskAncestorLocalIndex + 1];
-            }
-            precedenceConstraintsRef.erase(
-                std::remove_if(
-                    precedenceConstraintsRef.begin(),
-                    precedenceConstraintsRef.end(),
-                    [localPreviousTask, localNextTask](pair<int, int> x) {
-                      return ((x.first == localPreviousTask &&
-                               x.second == localNextTask));
-                    }),
-                precedenceConstraintsRef.end());
-            if (localPreviousTask != -1) {
-              precedenceConstraintsRef.insert(
-                  precedenceConstraintsRef.begin() +
-                      nextTaskAncestorLocalIndex - 1,
-                  make_pair(localPreviousTask, nextTaskAncestor));
-            }
-            if (localNextTask != -1) {
-              precedenceConstraintsRef.insert(
-                  precedenceConstraintsRef.begin() + nextTaskAncestorLocalIndex,
-                  make_pair(nextTaskAncestor, localNextTask));
-            }
-          }
-          agentsNewlyAddedTasksBelongTo.insert(nextTaskAncestorAgent);
-        } else {
-          int nextTaskAncestorAgent = solution_.taskAgentMap[nextTaskAncestor];
-          // This agent would have to be different than the regret packet's agent. We dont need to update task assignments or precedence constraints in this case as the regret packet's agent's queue should not be affected here as we are using the current solution anyways
-          assert(nextTaskAncestorAgent != UNASSIGNED);
-          if (agentsNewlyAddedTasksBelongTo.count(nextTaskAncestorAgent) > 0 &&
-              lnsNeighborhood_.patchedTasks.count(nextTaskAncestor) > 0) {
-            int nextTaskAncestorLocalIndex =
-                previousSolution_.getLocalTaskIndex(nextTaskAncestorAgent,
-                                                    nextTaskAncestor);
-            // TODO: Should we change the begin time of this task?
-            taskPathsRef[nextTaskAncestor] =
-                previousSolution_.agents[nextTaskAncestorAgent]
-                    .taskPaths[nextTaskAncestorLocalIndex];
-          } else {
-            int nextTaskAncestorLocalIndex = solution_.getLocalTaskIndex(
-                nextTaskAncestorAgent, nextTaskAncestor);
-            // TODO: Should we change the begin time of this task?
-            taskPathsRef[nextTaskAncestor] =
-                solution_.agents[nextTaskAncestorAgent]
-                    .taskPaths[nextTaskAncestorLocalIndex];
-          }
+                  .taskPaths[ancestorTaskLocalIndex]);
         }
       }
     }
 
-    int taskPosition = find(taskAssignmentsRef.begin(),
-                            taskAssignmentsRef.end(), regretPacket.task) -
-                       taskAssignmentsRef.begin();
-    vector<int> goalLocations = instance_.getTaskLocations(taskAssignmentsRef);
+    precedenceConstraintsRef = instance_.getInputPrecedenceConstraints();
+    for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+      for (int localTask = 0;
+           localTask < (int)agentTaskAssignmentsRef[agent].size();
+           localTask++) {
+
+        if (localTask > 0) {
+          precedenceConstraintsRef.emplace_back(
+              agentTaskAssignmentsRef[agent][localTask - 1],
+              agentTaskAssignmentsRef[agent][localTask]);
+          agentTaskPathsRef[agent][localTask].beginTime =
+              agentTaskPathsRef[agent][localTask - 1].endTime();
+        } else {
+          agentTaskPathsRef[agent][localTask].beginTime = 0;
+        }
+
+        if ((regretPacket.task ==
+                 agentTaskAssignmentsRef[agent][localTask - 1] ||
+             regretPacket.task == agentTaskAssignmentsRef[agent][localTask]) ||
+            (nextTask == agentTaskAssignmentsRef[agent][localTask - 1] ||
+             nextTask == agentTaskAssignmentsRef[agent][localTask])) {
+          continue;
+        }
+
+        if ((localTask == 0 &&
+             agentTaskPathsRef[agent][localTask].front().location !=
+                 instance_.getStartLocations()[agent]) ||
+            (localTask > 0 &&
+             agentTaskPathsRef[agent][localTask - 1].path.back().location !=
+                 agentTaskPathsRef[agent][localTask].path.front().location)) {
+          // if (lnsNeighborhood_.patchedTasks.count(
+          //         agentTaskAssignmentsRef[agent][localTask]) == 0) {
+
+          int startTime = 0;
+          if (localTask > 0) {
+            startTime = agentTaskPathsRef[agent][localTask - 1].endTime();
+          }
+          vector<int> goalLocations =
+              instance_.getTaskLocations(agentTaskAssignmentsRef[agent]);
+          MultiLabelSpaceTimeAStar localPlanner =
+              MultiLabelSpaceTimeAStar(instance_, agent);
+          localPlanner.setGoalLocations(goalLocations);
+          localPlanner.computeHeuristics();
+
+          ConstraintTable constraintTable(instance_.numOfCols,
+                                          instance_.mapSize);
+          TaskRegretPacket taskPacket = {
+              agentTaskAssignmentsRef[agent][localTask], agent, localTask, -1};
+          buildConstraintTable(constraintTable, taskPacket,
+                               goalLocations[localTask],
+                               &agentTaskAssignmentsRef, &agentTaskPathsRef,
+                               &precedenceConstraintsRef);
+          AgentTaskPath path = localPlanner.findPathSegment(
+              constraintTable, startTime, localTask, 0);
+          // We must be able to find the path for the next task. If not then we cannot move forward!
+          assert(!path.empty());
+          agentTaskPathsRef[agent][localTask] = path;
+
+          // } else {
+
+          //   int taskAgent =
+          //       previousSolution_
+          //           .taskAgentMap[agentTaskAssignmentsRef[agent][localTask]];
+          //   assert(taskAgent != UNASSIGNED);
+          //   int taskLocalIndex = previousSolution_.getLocalTaskIndex(
+          //       taskAgent, agentTaskAssignmentsRef[agent][localTask]);
+          //   agentTaskPathsRef[agent][localTask] =
+          //       previousSolution_.agents[taskAgent].taskPaths[taskLocalIndex];
+          //   agentTaskPathsRef[agent][localTask].beginTime =
+          //       agentTaskPathsRef[agent][localTask - 1].endTime();
+          // }
+        }
+      }
+    }
+
+    vector<int> planningOrder;
+    bool result =
+        topologicalSort(&instance_, &precedenceConstraintsRef, planningOrder);
+    if (!result) {
+      return false;
+    }
+
+    int taskPosition = find(agentTaskAssignmentsRef[regretPacket.agent].begin(),
+                            agentTaskAssignmentsRef[regretPacket.agent].end(),
+                            regretPacket.task) -
+                       agentTaskAssignmentsRef[regretPacket.agent].begin();
+    vector<int> goalLocations =
+        instance_.getTaskLocations(agentTaskAssignmentsRef[regretPacket.agent]);
     ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
 
     MultiLabelSpaceTimeAStar localPlanner =
@@ -1381,33 +1466,47 @@ std::variant<bool, Utility> LNS::insertTask(
     localPlanner.setGoalLocations(goalLocations);
     localPlanner.computeHeuristics();
 
-    buildConstraintTable(constraintTable, regretPacket.task,
-                         goalLocations[regretPacket.taskPosition],
-                         &taskPathsRef, &precedenceConstraintsRef);
+    buildConstraintTable(constraintTable, regretPacket,
+                         goalLocations[taskPosition], &agentTaskAssignmentsRef,
+                         &agentTaskPathsRef, &precedenceConstraintsRef);
     AgentTaskPath path = localPlanner.findPathSegment(
         constraintTable, startTime, taskPosition, 0);
     if (path.empty()) {
       return false;
     }
-    taskPathsRef[regretPacket.task] = path;
-    startTime = taskPathsRef[regretPacket.task].endTime();
+    agentTaskPathsRef[regretPacket.agent][taskPosition] = path;
+    value = path.size();
+    startTime = agentTaskPathsRef[regretPacket.agent][taskPosition].endTime();
 
     // Need to recompute the positions as we might add paths for parent tasks before reaching here!
     int nextTaskPosition =
-        find(taskAssignmentsRef.begin(), taskAssignmentsRef.end(), nextTask) -
-        taskAssignmentsRef.begin();
-    buildConstraintTable(constraintTable, nextTask,
-                         goalLocations[nextTaskPosition], &taskPathsRef,
-                         &precedenceConstraintsRef);
+        find(agentTaskAssignmentsRef[regretPacket.agent].begin(),
+             agentTaskAssignmentsRef[regretPacket.agent].end(), nextTask) -
+        agentTaskAssignmentsRef[regretPacket.agent].begin();
+    TaskRegretPacket nextTaskPacket = {
+        nextTask, regretPacket.agent, nextTaskPosition, {}};
+    buildConstraintTable(constraintTable, nextTaskPacket,
+                         goalLocations[nextTaskPosition],
+                         &agentTaskAssignmentsRef, &agentTaskPathsRef,
+                         &precedenceConstraintsRef, true);
     AgentTaskPath nextPath = localPlanner.findPathSegment(
         constraintTable, startTime, nextTaskPosition, 0);
     if (nextPath.empty()) {
       return false;
     }
-    taskPathsRef[nextTask] = nextPath;
+    agentTaskPathsRef[regretPacket.agent][nextTaskPosition] = nextPath;
+    value += nextPath.size();
   } else {
 
-    vector<int> goalLocations = instance_.getTaskLocations(taskAssignmentsRef);
+    vector<int> planningOrder;
+    bool result =
+        topologicalSort(&instance_, &precedenceConstraintsRef, planningOrder);
+    if (!result) {
+      return false;
+    }
+
+    vector<int> goalLocations =
+        instance_.getTaskLocations(agentTaskAssignmentsRef[regretPacket.agent]);
     ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
 
     MultiLabelSpaceTimeAStar localPlanner =
@@ -1415,27 +1514,26 @@ std::variant<bool, Utility> LNS::insertTask(
     localPlanner.setGoalLocations(goalLocations);
     localPlanner.computeHeuristics();
 
-    buildConstraintTable(constraintTable, regretPacket.task,
+    buildConstraintTable(constraintTable, regretPacket,
                          goalLocations[regretPacket.taskPosition],
-                         &taskPathsRef, &precedenceConstraintsRef);
+                         &agentTaskAssignmentsRef, &agentTaskPathsRef,
+                         &precedenceConstraintsRef);
     AgentTaskPath path = localPlanner.findPathSegment(
         constraintTable, startTime, regretPacket.taskPosition, 0);
     if (path.empty()) {
       return false;
     }
-    taskPathsRef[regretPacket.task] = path;
+    agentTaskPathsRef[regretPacket.agent][regretPacket.taskPosition] = path;
+    value = path.size();
   }
 
-  auto value = (double)taskPathsRef[regretPacket.task].size();
-  if (nextTask != -1) {
-    value += (double)taskPathsRef[nextTask].size();
-  }
   auto pathLength = value;
   value -= (lnsNeighborhood_.removedTasksPathSize.at(regretPacket.task) +
             pathSizeChange);
 
   Utility utility(regretPacket.agent, regretPacket.taskPosition, pathLength,
-                  (int)taskAssignmentsRef.size(), value);
+                  (int)agentTaskAssignmentsRef[regretPacket.agent].size(),
+                  value);
   return utility;
 }
 
@@ -1445,36 +1543,27 @@ void LNS::commitAncestorTaskOf(
   // If the boolean flag commitingNextTask is set then it means that the global task was the next task of some other task and we need to ensure that the ancestors of this next task are in order. This additional check is required as the first if condition changes depending on it.
   // The corresponding integer entry would be the global task id of the main task that we wanted to commit.
 
-  vector<int> inputPlanningOrder = instance_.getInputPlanningOrder();
+  vector<pair<int, int>> precedenceConstraints =
+      instance_.getInputPrecedenceConstraints();
+  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+    precedenceConstraints.insert(
+        precedenceConstraints.end(),
+        solution_.agents[agent].intraPrecedenceConstraints.begin(),
+        solution_.agents[agent].intraPrecedenceConstraints.end());
+  }
 
-  vector<vector<int>> ancestors = instance_.getAncestors();
+  vector<vector<int>> ancestors(instance_.getTasksNum());
+  for (pair<int, int> precConstraint : precedenceConstraints) {
+    ancestors[precConstraint.second].push_back(precConstraint.first);
+  }
   set<int> ancestorsOfTask = reachableSet(globalTask, ancestors);
   ancestorsOfTask.erase(globalTask);
 
-  int taskIndex =
-      find(inputPlanningOrder.begin(), inputPlanningOrder.end(), globalTask) -
-      inputPlanningOrder.begin();
-
-  for (int i = 0; i < taskIndex; i++) {
-
-    int ancestorTask = inputPlanningOrder[i];
-
-    // We only care about the tasks that are the actual ancestors of this task!
-    if (ancestorsOfTask.count(ancestorTask) == 0) {
-      continue;
-    }
-
-    if (ancestorTask == globalTask) {
-      break;
-    }
-
-    // This case relates to the tasks in the conflict set that need to be addressed before the task can be committed
+  for (int ancestorTask : ancestorsOfTask) {
     if (lnsNeighborhood_.commitedTasks.count(ancestorTask) > 0 &&
         !lnsNeighborhood_.commitedTasks[ancestorTask]) {
-
       if (committingNextTask.has_value() &&
           committingNextTask.value().second == ancestorTask) {
-        // If we are committing next task of some actual other task then that actual task would not be considered committed unless this next task is committed as well. However that actual task will come before this next task in the planning order so we need to skip that one!
         continue;
       }
 
@@ -1486,7 +1575,8 @@ void LNS::commitAncestorTaskOf(
 
       int ancestorTaskPositionRelativeToSolution = extractOldLocalTaskIndex(
           ancestorTask,
-          previousSolution_.agents[ancestorTaskAgent].taskAssignments);
+          previousSolution_.agents[ancestorTaskAgent].taskAssignments,
+          solution_.agents[ancestorTaskAgent].taskAssignments);
       int ancestorTaskPosition =
           previousSolution_.getLocalTaskIndex(ancestorTaskAgent, ancestorTask);
 
@@ -1517,29 +1607,117 @@ void LNS::commitAncestorTaskOf(
 
       // The ancestor of the task that was in the conflict set has now been committed using its old path, hence we need to mark it as resolved now
       markResolved(ancestorTask);
+    }
+  }
 
-      // Now if the next task on this agent's task queue was patched during the prepare iteration function phase then we need to remove it from that object and reuse its old path!
-      if (ancestorTask !=
-              (int)solution_.agents[ancestorTaskAgent].taskAssignments.back() &&
-          lnsNeighborhood_.patchedTasks.count(
-              solution_.agents[ancestorTaskAgent]
-                  .taskAssignments[ancestorTaskPositionRelativeToSolution +
-                                   1]) > 0) {
+  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+    for (int localTask = 0;
+         localTask < (int)solution_.agents[agent].taskAssignments.size();
+         localTask++) {
 
-        int localNextTask =
-            solution_.agents[ancestorTaskAgent]
-                .taskAssignments[ancestorTaskPositionRelativeToSolution + 1];
-        int localNextTaskOldPosition = previousSolution_.getLocalTaskIndex(
-            ancestorTaskAgent, localNextTask);
-        // Dont want to mess with the begin time of this task because if some other ancestor task would get in between these two then the begin time would be wrong if edited here
-        solution_.agents[ancestorTaskAgent]
-            .taskPaths[ancestorTaskPositionRelativeToSolution + 1] =
-            previousSolution_.agents[ancestorTaskAgent]
-                .taskPaths[localNextTaskOldPosition];
-        lnsNeighborhood_.patchedTasks.erase(localNextTask);
+      if (localTask > 0) {
+        solution_.agents[agent].taskPaths[localTask].beginTime =
+            solution_.agents[agent].taskPaths[localTask - 1].endTime();
+      } else {
+        solution_.agents[agent].taskPaths[localTask].beginTime = 0;
       }
-      // Fix the begin times based on whatever new paths were added
-      patchAgentTaskPaths(ancestorTaskAgent, 0);
+
+      if (globalTask ==
+              solution_.agents[agent].taskAssignments[localTask - 1] ||
+          globalTask == solution_.agents[agent].taskAssignments[localTask]) {
+        // We have not found the path for this global task yet so its task path would be empty placeholder!
+        continue;
+      }
+
+      if (committingNextTask.has_value() &&
+          (committingNextTask.value().second ==
+               solution_.agents[agent].taskAssignments[localTask - 1] ||
+           committingNextTask.value().second ==
+               solution_.agents[agent].taskAssignments[localTask])) {
+        // We wont have the path for the original commiting task here yet
+        continue;
+      }
+
+      if ((localTask == 0 &&
+           solution_.agents[agent].taskPaths[localTask].front().location !=
+               solution_.agents[agent].pathPlanner->startLocation) ||
+          (localTask > 0 && solution_.agents[agent]
+                                    .taskPaths[localTask - 1]
+                                    .path.back()
+                                    .location != solution_.agents[agent]
+                                                     .taskPaths[localTask]
+                                                     .path.front()
+                                                     .location)) {
+        // if (lnsNeighborhood_.patchedTasks.count(
+        //         solution_.agents[agent].taskAssignments[localTask]) == 0) {
+        // static_assert(true);
+        int startTime = 0;
+        if (localTask > 0) {
+          startTime =
+              solution_.agents[agent].taskPaths[localTask - 1].endTime();
+        }
+        ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
+        buildConstraintTable(
+            constraintTable,
+            solution_.agents[agent].taskAssignments[localTask]);
+        AgentTaskPath path =
+            solution_.agents[agent].pathPlanner->findPathSegment(
+                constraintTable, startTime, localTask, 0);
+        // We must be able to find the path for the next task. If not then we cannot move forward!
+        assert(!path.empty());
+        solution_.agents[agent].taskPaths[localTask] = path;
+
+        // } else {
+        //   int taskAgent =
+        //       previousSolution_.taskAgentMap[solution_.agents[agent]
+        //                                          .taskAssignments[localTask]];
+        //   assert(taskAgent != UNASSIGNED);
+        //   int taskLocalIndex = previousSolution_.getLocalTaskIndex(
+        //       taskAgent, solution_.agents[agent].taskAssignments[localTask]);
+        //   solution_.agents[agent].taskPaths[localTask] =
+        //       previousSolution_.agents[taskAgent].taskPaths[taskLocalIndex];
+        //   solution_.agents[agent].taskPaths[localTask].beginTime =
+        //       solution_.agents[agent].taskPaths[localTask - 1].endTime();
+        // }
+      }
+      lnsNeighborhood_.patchedTasks.erase(
+          solution_.agents[agent].taskAssignments[localTask]);
+    }
+  }
+
+  // Run a validity check!
+  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+    for (int localTask = 0;
+         localTask < (int)solution_.agents[agent].taskAssignments.size();
+         localTask++) {
+
+      if (globalTask ==
+              solution_.agents[agent].taskAssignments[localTask - 1] ||
+          globalTask == solution_.agents[agent].taskAssignments[localTask]) {
+        // We have not found the path for this global task yet so its task path would be empty placeholder!
+        continue;
+      }
+
+      if (committingNextTask.has_value() &&
+          (committingNextTask.value().second ==
+               solution_.agents[agent].taskAssignments[localTask - 1] ||
+           committingNextTask.value().second ==
+               solution_.agents[agent].taskAssignments[localTask])) {
+        // We wont have the path for the original commiting task here yet
+        continue;
+      }
+
+      if (localTask > 0) {
+        assert(
+            solution_.agents[agent]
+                .taskPaths[localTask - 1]
+                .path.back()
+                .location ==
+            solution_.agents[agent].taskPaths[localTask].path.front().location);
+      } else {
+        assert(solution_.agents[agent].taskPaths[localTask].front().location ==
+               solution_.agents[agent].pathPlanner->startLocation);
+      }
     }
   }
 }
@@ -1580,14 +1758,13 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
 
     nextTask = solution_.agents[bestRegretPacket.agent]
                    .taskAssignments[bestRegretPacket.taskPosition];
+    solution_.agents[bestRegretPacket.agent]
+        .taskPaths[bestRegretPacket.taskPosition] = AgentTaskPath();
+
     solution_.agents[bestRegretPacket.agent].taskAssignments.insert(
         solution_.agents[bestRegretPacket.agent].taskAssignments.begin() +
             bestRegretPacket.taskPosition,
         bestRegretPacket.task);
-
-    solution_.agents[bestRegretPacket.agent]
-        .taskPaths[bestRegretPacket.taskPosition] = AgentTaskPath();
-
     precedenceConstraints.emplace_back(bestRegretPacket.task, nextTask);
 
     // If we are NOT inserting at the start position then we need to take care of the previous task as well
@@ -1607,6 +1784,12 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
           precedenceConstraints.end());
       precedenceConstraints.emplace_back(previousTask, bestRegretPacket.task);
     }
+
+    // Insert an empty path at that task position
+    solution_.agents[bestRegretPacket.agent].taskPaths.insert(
+        solution_.agents[bestRegretPacket.agent].taskPaths.begin() +
+            bestRegretPacket.taskPosition,
+        AgentTaskPath());
   }
   // In this case we are inserting at the very end
   else if (bestRegretPacket.taskPosition == agentTasksSize &&
@@ -1653,12 +1836,6 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
              bestRegretPacket.task) -
         solution_.agents[bestRegretPacket.agent].taskAssignments.begin();
 
-    // Insert an empty path at that task position
-    solution_.agents[bestRegretPacket.agent].taskPaths.insert(
-        solution_.agents[bestRegretPacket.agent].taskPaths.begin() +
-            taskPosition,
-        AgentTaskPath());
-
     buildConstraintTable(constraintTable, bestRegretPacket.task);
     AgentTaskPath path =
         solution_.agents[bestRegretPacket.agent].pathPlanner->findPathSegment(
@@ -1668,7 +1845,7 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
     solution_.agents[bestRegretPacket.agent].taskPaths[taskPosition] = path;
     solution_.agents[bestRegretPacket.agent]
         .insertIntraAgentPrecedenceConstraint(bestRegretPacket.task,
-                                              bestRegretPacket.taskPosition);
+                                              taskPosition);
     solution_.taskAgentMap[bestRegretPacket.task] = bestRegretPacket.agent;
 
     buildConstraintTable(constraintTable, nextTask);
@@ -1715,65 +1892,73 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
   patchAgentTaskPaths(bestRegretPacket.agent, 0);
 }
 
-void LNS::buildConstraintTable(ConstraintTable& constraintTable, int task,
-                               int taskLocation,
-                               vector<AgentTaskPath>* taskPaths,
-                               vector<pair<int, int>>* precedenceConstraints) {
+void LNS::buildConstraintTable(ConstraintTable& constraintTable,
+                               TaskRegretPacket taskPacket, int taskLocation,
+                               vector<vector<int>>* agentTaskAssignments,
+                               vector<vector<AgentTaskPath>>* agentTaskPaths,
+                               vector<pair<int, int>>* precedenceConstraints,
+                               bool findingNextTask) {
+
+  vector<vector<AgentTaskPath>>& agentTaskPathsRef = *agentTaskPaths;
+  vector<vector<int>>& agentTaskAssignmentsRef = *agentTaskAssignments;
+  vector<pair<int, int>>& precedenceConstraintsRef = *precedenceConstraints;
 
   constraintTable.goalLocation = taskLocation;
 
   vector<vector<int>> ancestors = instance_.getAncestors();
   // TODO: We used input precedence constraints here but to me it seems like the input precedence constraints should be augmented by the precedence constraints of the agent we are considering here as well!
-  // for (pair<int, int> precedenceConstraint : *precedenceConstraints) {
-  //   ancestors[precedenceConstraint.second].push_back(
-  //       precedenceConstraint.first);
-  // }
-
-  set<int> setOfTasksToComplete = reachableSet(task, ancestors);
-  setOfTasksToComplete.erase(task);
-
-  // Identify which of the tasks that need to be done before the target task was/is the final task of its assigned agent
-  map<int, int> lastTasks;
-  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
-    // Loop through these tasks to ensure that once it finishes the last tasks map is fully updated
-    for (int ancestorTask : setOfTasksToComplete) {
-      // If the task was not in commited tasks set then it must be in the conflict set and its path would only be available in the previous solution
-      if (lnsNeighborhood_.commitedTasks.count(ancestorTask) > 0 &&
-          !lnsNeighborhood_.commitedTasks[ancestorTask]) {
-        if (previousSolution_.taskAgentMap[ancestorTask] == agent &&
-            previousSolution_.agents[agent].taskAssignments.back() ==
-                ancestorTask) {
-          lastTasks.insert(make_pair(agent, ancestorTask));
-        }
-      }
-      // Otherwise it must be in the solution.
-      else {
-        if (solution_.taskAgentMap[ancestorTask] == agent &&
-            solution_.agents[agent].taskAssignments.back() == ancestorTask) {
-          lastTasks.insert(make_pair(agent, ancestorTask));
-        }
-      }
-    }
+  for (pair<int, int> precedenceConstraint : precedenceConstraintsRef) {
+    ancestors[precedenceConstraint.second].push_back(
+        precedenceConstraint.first);
   }
+
+  set<int> ancestorsOfTask = reachableSet(taskPacket.task, ancestors);
+  ancestorsOfTask.erase(taskPacket.task);
 
   // Loop through the last task map to gather the actual final tasks of the agents
   vector<bool> finalTasks(instance_.getTasksNum(), false);
-  for (pair<int, int> lastTask : lastTasks) {
-    finalTasks[lastTask.second] = true;
+  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+    if ((int)agentTaskAssignmentsRef[agent].size() > 0) {
+      int lastTask = agentTaskAssignmentsRef[agent].back();
+      finalTasks[lastTask] = true;
+    }
   }
 
   // Add the paths of the prior tasks to the constraint table with information about whether they were their agent's final tasks or not
-  for (int ancestorTask : setOfTasksToComplete) {
-    assert(!(*taskPaths)[ancestorTask].empty());
+  for (int ancestorTask : ancestorsOfTask) {
+
+    int ancestorTaskAgent = UNDEFINED;
+    if (findingNextTask &&
+        ancestorTask == agentTaskAssignmentsRef[taskPacket.agent]
+                                               [taskPacket.taskPosition - 1]) {
+      ancestorTaskAgent = taskPacket.agent;
+    } else if (lnsNeighborhood_.commitedTasks.count(ancestorTask) > 0 &&
+               !lnsNeighborhood_.commitedTasks[ancestorTask]) {
+      ancestorTaskAgent = previousSolution_.taskAgentMap[ancestorTask];
+      assert(ancestorTaskAgent != UNASSIGNED);
+    } else {
+      ancestorTaskAgent = solution_.taskAgentMap[ancestorTask];
+      assert(ancestorTaskAgent != UNASSIGNED);
+    }
+
+    int ancestorTaskLocalIndex =
+        std::find(begin(agentTaskAssignmentsRef[ancestorTaskAgent]),
+                  end(agentTaskAssignmentsRef[ancestorTaskAgent]),
+                  ancestorTask) -
+        begin(agentTaskAssignmentsRef[ancestorTaskAgent]);
+    assert(
+        !agentTaskPathsRef[ancestorTaskAgent][ancestorTaskLocalIndex].empty());
     bool waitAtGoal = finalTasks[ancestorTask];
-    constraintTable.addPath((*taskPaths)[ancestorTask], waitAtGoal);
+    constraintTable.addPath(
+        agentTaskPathsRef[ancestorTaskAgent][ancestorTaskLocalIndex],
+        waitAtGoal);
+
+    constraintTable.lengthMin = max(
+        constraintTable.lengthMin,
+        agentTaskPathsRef[ancestorTaskAgent][ancestorTaskLocalIndex].endTime() +
+            1);
   }
 
-  for (int ancestorTask : ancestors[task]) {
-    assert(!(*taskPaths)[ancestorTask].empty());
-    constraintTable.lengthMin = max(constraintTable.lengthMin,
-                                    (*taskPaths)[ancestorTask].endTime() + 1);
-  }
   constraintTable.latestTimestep =
       max(constraintTable.latestTimestep, constraintTable.lengthMin);
 }
@@ -1785,24 +1970,37 @@ void LNS::buildConstraintTable(ConstraintTable& constraintTable, int task) {
   vector<pair<int, int>> precedenceConstraints =
       instance_.getInputPrecedenceConstraints();
 
-  vector<vector<int>> ancestors = instance_.getAncestors();
-  set<int> setOfTasksToComplete = reachableSet(task, ancestors);
-  setOfTasksToComplete.erase(task);
+  if (iterationStats.size() > 1) {
+    for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+      precedenceConstraints.insert(
+          precedenceConstraints.end(),
+          solution_.agents[agent].intraPrecedenceConstraints.begin(),
+          solution_.agents[agent].intraPrecedenceConstraints.end());
+    }
+  }
 
-  for (int ancestorTask : setOfTasksToComplete) {
+  vector<vector<int>> ancestors(instance_.getTasksNum());
+  for (pair<int, int> precConstraint : precedenceConstraints) {
+    ancestors[precConstraint.second].push_back(precConstraint.first);
+  }
+
+  set<int> ancestorsOfTask = reachableSet(task, ancestors);
+  ancestorsOfTask.erase(task);
+
+  for (int ancestorTask : ancestorsOfTask) {
     int ancestorTaskAgent = solution_.taskAgentMap[ancestorTask];
     assert(ancestorTaskAgent != UNASSIGNED);
     int ancestorTaskPosition =
         solution_.getLocalTaskIndex(ancestorTaskAgent, ancestorTask);
     bool waitAtGoal =
-        ancestorTaskPosition ==
-        (int)solution_.getAgentGlobalTasks(ancestorTaskAgent).size() - 1;
+        ancestorTask ==
+        (int)solution_.agents[ancestorTaskAgent].taskAssignments.back();
     constraintTable.addPath(
         solution_.agents[ancestorTaskAgent].taskPaths[ancestorTaskPosition],
         waitAtGoal);
   }
 
-  for (int ancestorTask : ancestors[task]) {
+  for (int ancestorTask : ancestorsOfTask) {
     int ancestorTaskAgent = solution_.getAgentWithTask(ancestorTask);
     int ancestorTaskPosition =
         solution_.getLocalTaskIndex(ancestorTaskAgent, ancestorTask);
@@ -1820,29 +2018,35 @@ void LNS::buildConstraintTable(ConstraintTable& constraintTable, int task) {
       max(constraintTable.latestTimestep, constraintTable.lengthMin);
 }
 
-int LNS::extractOldLocalTaskIndex(int task, vector<int> taskQueue) {
+int LNS::extractOldLocalTaskIndex(int task, vector<int> oldTaskQueue,
+                                  vector<int> newTaskQueue) {
   int localTaskPositionOffset = 0;
   // We need to compute the offset as we can invalidate multiple tasks associated with an agent. This means that simply querying the previous solution agent's task index is not enough as the it would be more than the actual task position value for the current solution
-  for (int localTask : taskQueue) {
+  for (int localTask : oldTaskQueue) {
     // We dont need to bother for the tasks that come after the current one since we are considering them in planning order
     if (localTask == task) {
       break;
     }
+
+    // This local task should not be in the new task queue otherwise we have accounted for it before! If not then the offset should only be incremented if it was in conflict set
     if (find_if(begin(lnsNeighborhood_.immutableRemovedTasks),
                 end(lnsNeighborhood_.immutableRemovedTasks),
                 [localTask](Conflicts conflict) {
                   return conflict.task == localTask;
-                }) != end(lnsNeighborhood_.immutableRemovedTasks)) {
+                }) != end(lnsNeighborhood_.immutableRemovedTasks) &&
+        find_if(begin(newTaskQueue), end(newTaskQueue), [localTask](int task) {
+          return task == localTask;
+        }) == end(newTaskQueue)) {
       localTaskPositionOffset++;
     }
   }
   int index = 0;
-  for (; index < (int)taskQueue.size(); index++) {
-    if (taskQueue[index] == task) {
+  for (; index < (int)oldTaskQueue.size(); index++) {
+    if (oldTaskQueue[index] == task) {
       break;
     }
   }
-  assert(index < (int)taskQueue.size());
+  assert(index < (int)oldTaskQueue.size());
   return index - localTaskPositionOffset;
 }
 
