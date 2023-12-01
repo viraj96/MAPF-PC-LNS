@@ -103,12 +103,16 @@ struct Agent {
     assert(std::find(taskAssignments.begin(), taskAssignments.end(), task) !=
            taskAssignments.end());
     int taskPosition = getLocalTaskIndex(task);
-    int previousTask = -1, nextTask = -1;
-    if (taskPosition != 0) {
-      previousTask = taskAssignments[taskPosition - 1];
+    int previousTask = -1, nextTask = -1,
+        previousTaskPosition = taskPosition - 1,
+        nextTaskPosition = taskPosition + 1;
+    while (previousTaskPosition >= 0 && previousTask == -1) {
+      previousTask = taskAssignments[previousTaskPosition];
+      previousTaskPosition--;
     }
-    if (taskPosition != (int)taskAssignments.size() - 1) {
-      nextTask = taskAssignments[taskPosition + 1];
+    while (nextTaskPosition < (int)taskAssignments.size() && nextTask == -1) {
+      nextTask = taskAssignments[nextTaskPosition];
+      nextTaskPosition++;
     }
 
     intraPrecedenceConstraints.erase(
@@ -479,7 +483,8 @@ class LNS {
                             int taskLocation, vector<AgentTaskPath>* taskPaths,
                             vector<pair<int, int>>* precedenceConstraints);
 
-  int extractOldLocalTaskIndex(int task, vector<int> taskQueue);
+  int extractOldLocalTaskIndex(int task, vector<int> oldTaskQueue,
+                               vector<int> newTaskQueue = {});
   set<int> reachableSet(int source, vector<vector<int>> edgeList);
 
   bool computeRegret();

@@ -209,8 +209,8 @@ double MovingMetrics::computeMovingMetrics(int numberOfConflicts,
 
   double utility =
       lnsConflictWeight * ((numberOfConflicts - movingNumConflictAverage) /
-                           sqrt(movingNumConflictVar)) +
+                           sqrt(movingNumConflictVar + 1)) +
       lnsCostWeight *
-          ((sumOfCosts - movingNumCostAverage) / sqrt(movingNumCostVar));
+          ((sumOfCosts - movingNumCostAverage) / sqrt(movingNumCostVar + 1));
   return utility;
 }

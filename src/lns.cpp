@@ -26,6 +26,8 @@ LNS::LNS(int numOfIterations, const Instance& instance,
   tolerance_ = parameters.tolerance;
   shawDistanceWeight_ = parameters.shawDistanceWeight;
   shawTemporalWeight_ = parameters.shawTemporalWeight;
+  lnsConflictWeight_ = parameters.lnsConflictWeight;
+  lnsCostWeight_ = parameters.lnsCostWeight;
   initialSolutionStrategy = parameters.initialSolutionStrategy;
   destroyHeuristic = parameters.destroyHeuristic;
   acceptanceCriteria = parameters.acceptanceCriteria;
@@ -707,7 +709,8 @@ bool LNS::run() {
   previousSolution_ = solution_;
 
   // LNS loop
-  while (runtime < timeLimit_) {
+  while (runtime < timeLimit_ &&
+         (int)iterationStats.size() < numOfIterations_ * 2) {
 
     // These functions populate the LNS neighborhoods' removedTask parameter
     if (destroyHeuristic == "conflict") {
@@ -1014,7 +1017,8 @@ bool LNS::computeRegretForTask(int task) {
           previousSolution_.taskAgentMap[inputPlanningOrder[i]] == agent) {
         int localTaskPositionRelativeToSolution = extractOldLocalTaskIndex(
             inputPlanningOrder[i],
-            previousSolution_.agents[agent].taskAssignments);
+            previousSolution_.agents[agent].taskAssignments,
+            temporaryTaskAssignments);
         temporaryTaskAssignments.insert(temporaryTaskAssignments.begin() +
                                             localTaskPositionRelativeToSolution,
                                         inputPlanningOrder[i]);
@@ -1182,8 +1186,12 @@ void LNS::computeRegretForTaskWithAgent(
   // Compute the first position along the agent's task assignments where we can insert this task
   int firstValidPosition = 0;
   for (int j = (int)taskAssignments->size() - 1; j >= 0; j--) {
-    int taskID = (*taskAssignments)[j];
-    if ((*taskPaths)[taskID].endTime() <= regretPacket.earliestTimestep) {
+    int taskID = (*taskAssignments)[j],
+        beginTime = (*taskPaths)[taskID].beginTime,
+        endTime = (*taskPaths)[taskID].endTime();
+    if ((regretPacket.earliestTimestep > endTime) ||
+        (regretPacket.earliestTimestep <= endTime &&
+         regretPacket.earliestTimestep >= beginTime)) {
       firstValidPosition = j + 1;
       break;
     }
@@ -1382,8 +1390,8 @@ std::variant<bool, Utility> LNS::insertTask(
     localPlanner.computeHeuristics();
 
     buildConstraintTable(constraintTable, regretPacket.task,
-                         goalLocations[regretPacket.taskPosition],
-                         &taskPathsRef, &precedenceConstraintsRef);
+                         goalLocations[taskPosition], &taskPathsRef,
+                         &precedenceConstraintsRef);
     AgentTaskPath path = localPlanner.findPathSegment(
         constraintTable, startTime, taskPosition, 0);
     if (path.empty()) {
@@ -1486,7 +1494,8 @@ void LNS::commitAncestorTaskOf(
 
       int ancestorTaskPositionRelativeToSolution = extractOldLocalTaskIndex(
           ancestorTask,
-          previousSolution_.agents[ancestorTaskAgent].taskAssignments);
+          previousSolution_.agents[ancestorTaskAgent].taskAssignments,
+          solution_.agents[ancestorTaskAgent].taskAssignments);
       int ancestorTaskPosition =
           previousSolution_.getLocalTaskIndex(ancestorTaskAgent, ancestorTask);
 
@@ -1668,7 +1677,7 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
     solution_.agents[bestRegretPacket.agent].taskPaths[taskPosition] = path;
     solution_.agents[bestRegretPacket.agent]
         .insertIntraAgentPrecedenceConstraint(bestRegretPacket.task,
-                                              bestRegretPacket.taskPosition);
+                                              taskPosition);
     solution_.taskAgentMap[bestRegretPacket.task] = bestRegretPacket.agent;
 
     buildConstraintTable(constraintTable, nextTask);
@@ -1820,10 +1829,11 @@ void LNS::buildConstraintTable(ConstraintTable& constraintTable, int task) {
       max(constraintTable.latestTimestep, constraintTable.lengthMin);
 }
 
-int LNS::extractOldLocalTaskIndex(int task, vector<int> taskQueue) {
+int LNS::extractOldLocalTaskIndex(int task, vector<int> oldTaskQueue,
+                                  vector<int> newTaskQueue) {
   int localTaskPositionOffset = 0;
   // We need to compute the offset as we can invalidate multiple tasks associated with an agent. This means that simply querying the previous solution agent's task index is not enough as the it would be more than the actual task position value for the current solution
-  for (int localTask : taskQueue) {
+  for (int localTask : oldTaskQueue) {
     // We dont need to bother for the tasks that come after the current one since we are considering them in planning order
     if (localTask == task) {
       break;
@@ -1832,17 +1842,20 @@ int LNS::extractOldLocalTaskIndex(int task, vector<int> taskQueue) {
                 end(lnsNeighborhood_.immutableRemovedTasks),
                 [localTask](Conflicts conflict) {
                   return conflict.task == localTask;
-                }) != end(lnsNeighborhood_.immutableRemovedTasks)) {
+                }) != end(lnsNeighborhood_.immutableRemovedTasks) &&
+        find_if(begin(newTaskQueue), end(newTaskQueue), [localTask](int task) {
+          return task == localTask;
+        }) == end(newTaskQueue)) {
       localTaskPositionOffset++;
     }
   }
   int index = 0;
-  for (; index < (int)taskQueue.size(); index++) {
-    if (taskQueue[index] == task) {
+  for (; index < (int)oldTaskQueue.size(); index++) {
+    if (oldTaskQueue[index] == task) {
       break;
     }
   }
-  assert(index < (int)taskQueue.size());
+  assert(index < (int)oldTaskQueue.size());
   return index - localTaskPositionOffset;
 }
 
