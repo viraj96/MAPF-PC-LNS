@@ -155,7 +155,7 @@ int main(int argc, char** argv) {
   vector<double> feasibleSolutionIterations, feasibleSolutionRuntimes,
       feasibleSolutionValues;
   double firstFeasibleSolutionTime = 0, numFeasibleSolutionUpdate = 0,
-         counter = 0;
+         couldNotFindCounter = 0, counter = 0;
   if (success) {
     for (const IterationStats& iter : lnsInstance.iterationStats) {
       if (iter.feasibleSolutionFound) {
@@ -169,6 +169,9 @@ int main(int argc, char** argv) {
         feasibleSolutionIterations.push_back(counter);
         feasibleSolutionRuntimes.push_back(iter.runtime);
         feasibleSolutionValues.push_back(iter.sumOfCosts);
+      }
+      if (iter.quality == IterationQuality::couldNotFind) {
+        couldNotFindCounter++;
       }
       counter++;
     }
@@ -207,6 +210,10 @@ int main(int argc, char** argv) {
       }
     }
   }
+
+  std::cout << "\n\nCould not find solution for " << couldNotFindCounter
+            << " iterations!\n";
+
   std::cout << "\n\nFeasible Solution Iterations: \n";
   for (double iter : feasibleSolutionIterations) {
     std::cout << iter << ",\t";
