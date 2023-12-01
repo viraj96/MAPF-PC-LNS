@@ -765,7 +765,7 @@ bool LNS::run() {
       // Reject whatever we done till now
       solution_ = previousSolution_;
       feasibleSolutionUpdated = false;
-      quality = IterationQuality::none;
+      quality = IterationQuality::couldNotFind;
       runtime = ((fsec)(Time::now() - plannerStartTime_)).count();
       iterationStats.emplace_back(runtime, "LNS", instance_.getAgentNum(),
                                   instance_.getTasksNum(), solution_.sumOfCosts,

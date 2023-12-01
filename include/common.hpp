@@ -68,7 +68,8 @@ enum IterationQuality {
   bestSolutionYet = 1,
   improvedSolution = 2,
   dowgradedButAccepted = 3,
-  none = 4
+  couldNotFind = 4,
+  none = 5
 };
 
 struct Path {
