@@ -4,9 +4,11 @@
 #include <limits>
 #include <numeric>
 #include <utility>
+#include "astar.hpp"
 #include "common.hpp"
 #include "constrainttable.hpp"
 #include "mlastar.hpp"
+#include "sipp.hpp"
 
 enum DestroyHeuristic {
   randomRemoval = 0,
@@ -19,7 +21,7 @@ struct Agent {
   int id;
   AgentTaskPath path;
   vector<int> taskAssignments;
-  vector<AgentTaskPath> taskPaths;
+  vector<Path> taskPaths;
   vector<pair<int, int>> intraPrecedenceConstraints;
   std::shared_ptr<SingleAgentSolver> pathPlanner = nullptr;
 
@@ -46,8 +48,16 @@ struct Agent {
     return *this;
   }
   Agent& operator=(Agent&&) = delete;
-  Agent(const Instance& instance, int id) : id(id) {
-    pathPlanner = std::make_shared<MultiLabelSpaceTimeAStar>(instance, id);
+  Agent(const Instance& instance, int id, const string& singleAgentSolverType)
+      : id(id) {
+    if (singleAgentSolverType == "mlastar") {
+      pathPlanner = std::make_shared<MultiLabelSpaceTimeAStar>(instance, id);
+    } else if (singleAgentSolverType == "sipps") {
+      pathPlanner = std::make_shared<SIPP>(instance, id);
+    } else {
+      PLOGE << "Incorrect single-agent solver provided!\n";
+      static_assert(true);
+    }
   }
   ~Agent() = default;
 
@@ -268,6 +278,7 @@ class Solution {
  public:
   int sumOfCosts{};
   double utility{};
+  PathTable pathTable;
   vector<Agent> agents;
   map<int, int> taskAgentMap;  // (key, value) - (global task, agent)
   int numOfAgents, numOfTasks;
@@ -277,12 +288,13 @@ class Solution {
   Solution& operator=(Solution&&) = delete;
   ~Solution() = default;
 
-  Solution(const Instance& instance) {
+  Solution(const Instance& instance, string singleAgentSolverType)
+      : pathTable(singleAgentSolverType, instance.mapSize) {
     numOfTasks = instance.getTasksNum();
     numOfAgents = instance.getAgentNum();
     agents.reserve(numOfAgents);
     for (int i = 0; i < numOfAgents; i++) {
-      agents.emplace_back(instance, i);
+      agents.emplace_back(instance, i, singleAgentSolverType);
     }
     for (int i = 0; i < numOfTasks; i++) {
       taskAgentMap.insert(make_pair(i, UNASSIGNED));
@@ -316,7 +328,6 @@ class Solution {
         agents[agent].taskAssignments.begin() + taskPosition, task);
   }
 
-  // Do we need this function?
   void joinPaths(const vector<int>& agentsToCompute) {
     for (int agent : agentsToCompute) {
 
@@ -408,7 +419,7 @@ struct LNSParams {
       tolerance, shawDistanceWeight, shawTemporalWeight, lnsConflictWeight,
       lnsCostWeight;
   string initialSolutionStrategy, destroyHeuristic, acceptanceCriteria,
-      regretType;
+      regretType, singleAgentSolverType;
 
   LNSParams(int neighborhoodSize, double timeLimit, double temperature,
             double coolingCoefficient, double heatingCoefficient,
@@ -416,7 +427,7 @@ struct LNSParams {
             double shawTemporalWeight, double lnsConflictWeight,
             double lnsCostWeight, string initialSolutionStrategy,
             string destroyHeuristic, string acceptanceCriteria,
-            string regretType)
+            string regretType, string singleAgentSolverType)
       : neighborhoodSize(neighborhoodSize),
         timeLimit(timeLimit),
         temperature(temperature),
@@ -430,7 +441,8 @@ struct LNSParams {
         initialSolutionStrategy(std::move(initialSolutionStrategy)),
         destroyHeuristic(std::move(destroyHeuristic)),
         acceptanceCriteria(std::move(acceptanceCriteria)),
-        regretType(std::move(regretType)) {}
+        regretType(std::move(regretType)),
+        singleAgentSolverType(std::move(singleAgentSolverType)) {}
 };
 
 class LNS {
@@ -442,10 +454,11 @@ class LNS {
   int neighborSize_;
   Neighbor lnsNeighborhood_;
   const Instance& instance_;
-  vector<AgentTaskPath> initialPaths_;
+  vector<Path> initialPaths_;
   FeasibleSolution incumbentSolution_;
   Solution solution_, previousSolution_;
-  double timeLimit_, initialSolutionRuntime_ = 0, temperature_ = 100,
+  double timeLimit_, initialSolutionRuntime_ = 0, initialSolutionCost_ = 0,
+                     initialSolutionConflictNum_ = 0, temperature_ = 100,
                      coolingCoefficient_ = 0.99975,
                      heatingCoefficient_ = 1.00025, tolerance_ = 5,
                      shawDistanceWeight_ = 9, shawTemporalWeight_ = 3,
@@ -457,7 +470,7 @@ class LNS {
   int numOfFailures = 0, sumOfCosts = 0;
   list<IterationStats> iterationStats;
   string initialSolutionStrategy, destroyHeuristic, acceptanceCriteria,
-      regretType;
+      regretType, singleAgentSolverType;
 
   LNS(int numOfIterations, const Instance& instance,
       const LNSParams& parameters);
@@ -472,7 +485,8 @@ class LNS {
   void prepareNextIteration();
   void markResolved(int globalTask);
   // Patches the task paths of an agent such that the begin times and end times match up
-  void patchAgentTaskPaths(int agent, int taskPosition);
+  void patchAgentTaskPaths(int agent, int taskPosition,
+                           bool preparingNextIteration = false);
 
   void printPaths() const;
   bool validateSolution(set<Conflicts>* conflictedTasks = nullptr);
@@ -482,7 +496,7 @@ class LNS {
   void buildConstraintTable(ConstraintTable& constraintTable,
                             TaskRegretPacket taskPacket, int taskLocation,
                             vector<vector<int>>* agentTaskAssignments,
-                            vector<vector<AgentTaskPath>>* agentTaskPaths,
+                            vector<vector<Path>>* agentTaskPaths,
                             vector<pair<int, int>>* precedenceConstraints,
                             bool findingNextTask = false);
 
@@ -494,7 +508,7 @@ class LNS {
   bool computeRegretForTask(int task);
   void computeRegretForTaskWithAgent(
       TaskRegretPacket regretPacket, vector<vector<int>>* agentTaskAssignments,
-      vector<vector<AgentTaskPath>>* agentTaskPaths,
+      vector<vector<Path>>* agentTaskPaths,
       vector<pair<int, int>>* precedenceConstraints,
       pairing_heap<Utility, compare<Utility::CompareUtilities>>* serviceTimes);
 
@@ -504,11 +518,14 @@ class LNS {
 
   std::variant<bool, Utility> insertTask(
       TaskRegretPacket regretPacket,
-      vector<vector<AgentTaskPath>>* agentTaskPaths,
+      vector<vector<Path>>* agentTaskPaths,
       vector<vector<int>>* agentTaskAssignments,
       vector<pair<int, int>>* precedenceConstraints);
   void insertBestRegretTask(TaskRegretPacket bestRegretPacket);
 
+  pair<int, int> getInitialSolutionStats() {
+    return make_pair(initialSolutionCost_, initialSolutionConflictNum_);
+  }
   Solution getSolution() { return solution_; }
   ALNS getAdaptiveLNS() { return adaptiveLNS_; }
 

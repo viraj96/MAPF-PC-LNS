@@ -8,15 +8,17 @@
 #include <optional>
 #include <random>
 #include <utility>
+#include <variant>
 #include "common.hpp"
+#include "pathtable.hpp"
 #include "utils.hpp"
 
 LNS::LNS(int numOfIterations, const Instance& instance,
          const LNSParams& parameters)
     : numOfIterations_(numOfIterations),
       instance_(instance),
-      solution_(instance),
-      previousSolution_(instance) {
+      solution_(instance, parameters.singleAgentSolverType),
+      previousSolution_(instance, parameters.singleAgentSolverType) {
   plannerStartTime_ = Time::now();
   neighborSize_ = parameters.neighborhoodSize;
   timeLimit_ = parameters.timeLimit;
@@ -32,6 +34,7 @@ LNS::LNS(int numOfIterations, const Instance& instance,
   destroyHeuristic = parameters.destroyHeuristic;
   acceptanceCriteria = parameters.acceptanceCriteria;
   regretType = parameters.regretType;
+  singleAgentSolverType = parameters.singleAgentSolverType;
 }
 
 bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
@@ -53,8 +56,7 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
   string command =
       "./MAPF-PC/build/bin/task_assignment -m " + instance_.getMapName() +
       " -a " + instance_.getAgentTaskFName() + " -k " +
-      std::to_string(instance_.getAgentNum()) + " -t " +
-      std::to_string(instance_.getTasksNum()) + " --solver " + solver;
+      std::to_string(instance_.getAgentNum()) + " -t " + std::to_string(30) + " --solver " + solver;
 
   // Run a child process to spawn the MAPC-PC codebase with the current map and agent informations
   namespace bp = boost::process;
@@ -106,14 +108,14 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
         line.erase(0, pos + 1);
       }
       solution_.agents[agent].taskPaths.resize(
-          solution_.agents[agent].taskAssignments.size(), AgentTaskPath());
+          solution_.agents[agent].taskAssignments.size(), Path());
     }
     // If we are not reading the task assignments then we must be reading the task paths.
     // Eg: Agent 1
     //     6 @ 0 -> 22 -> 23 @ 2 -> 24 @ 3 -> 25 -> 26 ->
     else if (readingTaskPaths && agent > -1) {
       string token;
-      AgentTaskPath taskPath;
+      Path taskPath;
       size_t pos = 0;
       int taskIndex = -1;
       while ((pos = line.find("->")) != string::npos) {
@@ -127,7 +129,14 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
             solution_.agents[agent].taskPaths[taskIndex] = taskPath;
             initialPaths_[solution_.agents[agent].taskAssignments[taskIndex]] =
                 taskPath;
-            taskPath = AgentTaskPath();
+
+            // Add it to the path table
+            bool waitAtGoal =
+                (taskIndex ==
+                 (int)solution_.agents[agent].taskAssignments.size());
+            solution_.pathTable.insertPath(agent, taskPath, waitAtGoal,
+                                           taskIndex == 0, true);
+            taskPath = Path();
           }
           taskIndex++;
           size_t localPos = 0;
@@ -173,7 +182,7 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
         solution_.agents[agent].taskPaths[taskIndex] = taskPath;
         initialPaths_[solution_.agents[agent].taskAssignments[taskIndex]] =
             taskPath;
-        taskPath = AgentTaskPath();
+        taskPath = Path();
       }
     }
   }
@@ -184,11 +193,16 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
     solution_.agents[agent].pathPlanner->setGoalLocations(taskLocations);
     solution_.agents[agent].pathPlanner->setGoalLocations(taskLocations);
     solution_.agents[agent].pathPlanner->computeHeuristics();
-    for (int task = 1; task < (int)solution_.getAgentGlobalTasks(agent).size();
+    for (int task = 0; task < (int)solution_.getAgentGlobalTasks(agent).size();
          task++) {
-      solution_.agents[agent].insertPrecedenceConstraint(
+      if (task > 0) {
+        solution_.agents[agent].insertPrecedenceConstraint(
           solution_.agents[agent].taskAssignments[task - 1],
           solution_.agents[agent].taskAssignments[task]);
+      }
+      bool waitAtGoal = (task == (int)solution_.getAgentGlobalTasks(agent).size() - 1);
+      bool firstTask = (task == 0);
+      solution_.pathTable.insertPath(agent, solution_.agents[agent].taskPaths[task], waitAtGoal, firstTask);
     }
   }
 
@@ -265,7 +279,12 @@ bool LNS::buildGreedySolution() {
 
     PLOGI << "Planning for agent " << agent << " and task " << task << endl;
 
-    ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
+    PathTable* pathTable = nullptr;
+    if (singleAgentSolverType == "sipps") {
+      pathTable = &solution_.pathTable;
+    }
+    ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize,
+                                    pathTable);
     buildConstraintTable(constraintTable, task);
     initialPaths_[id] = solution_.agents[agent].pathPlanner->findPathSegment(
         constraintTable, startTime, taskPosition, 0);
@@ -274,6 +293,12 @@ bool LNS::buildGreedySolution() {
             << endl;
       return false;
     }
+
+    // Add it to the path table
+    bool waitAtGoal = (id == solution_.agents[agent].taskAssignments.back()),
+         firstTask = (id == solution_.agents[agent].taskAssignments.front());
+    solution_.pathTable.insertPath(agent, initialPaths_[id], waitAtGoal,
+                                   firstTask);
     solution_.agents[agent].taskPaths[taskPosition] = initialPaths_[id];
   }
 
@@ -529,7 +554,7 @@ void LNS::alnsRemoval(std::optional<set<Conflicts>> potentialNeighborhood) {
   adaptiveLNS_.alnsCounter++;
 
   // Cannot update the successes in the first iteration!
-  if (iterationStats.size() != 1) {
+  if (iterationStats.size() > 1) {
     // Incorporate the results of the heuristic performance in the last iteration
     switch (iterationStats.back().quality) {
       case bestSolutionYet:
@@ -670,12 +695,18 @@ bool LNS::run() {
     success = buildGreedySolutionWithMAPFPC(initialSolutionStrategy);
   }
 
+  // If the MAPC-PC versions failed due to timeout then we default to greedy
+  if (!success && initialSolutionStrategy != "greedy") {
+    success = buildGreedySolution();
+  }
+
   // If the initial solution strategy failed then we cannot do anything!
   if (!success) {
     return success;
   }
 
   initialSolutionRuntime_ = ((fsec)(Time::now() - plannerStartTime_)).count();
+  initialSolutionCost_ = solution_.sumOfCosts;
   runtime = initialSolutionRuntime_;
 
   PLOGD << "Initial solution cost = " << solution_.sumOfCosts
@@ -683,6 +714,7 @@ bool LNS::run() {
 
   set<Conflicts> potentialNeighborhood;  // Need for the conflict removal case
   bool valid = validateSolution(&potentialNeighborhood);
+  initialSolutionConflictNum_ = (int)potentialNeighborhood.size();
 
   bool feasibleSolutionUpdated = false;
   if (valid) {
@@ -874,20 +906,6 @@ void LNS::prepareNextIteration() {
 
   // Find the tasks that are following the earliest conflicting task as their paths need to be invalidated
   vector<vector<int>> successors = instance_.getSuccessors();
-  // vector<pair<int, int>> precedenceConstraints =
-  //     instance_.getInputPrecedenceConstraints();
-  // vector<vector<int>> successors(instance_.getTasksNum());
-
-  // for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
-  //   precedenceConstraints.insert(
-  //       precedenceConstraints.end(),
-  //       solution_.agents[agent].intraPrecedenceConstraints.begin(),
-  //       solution_.agents[agent].intraPrecedenceConstraints.end());
-  // }
-
-  // for (pair<int, int> precConstraint : precedenceConstraints) {
-  //   successors[precConstraint.first].push_back(precConstraint.second);
-  // }
 
   // We need to include all the successors of the original conflicted tasks to ensure that we dont try to find their paths later down the line because otherwise we will face errors since the ancestors of those successor tasks wont have paths.
   for (Conflicts conflictTask : lnsNeighborhood_.removedTasks) {
@@ -913,8 +931,7 @@ void LNS::prepareNextIteration() {
           << " at position: " << taskPosition << " with path length = "
           << solution_.agents[agent].taskPaths[taskPosition].size() << endl;
 
-    // If the invalidated task was not the last local task of this agent then t_id + 1 exists
-    // If the invalid task was not the last task
+    
     if (invalidTask.task != solution_.getAgentGlobalTasks(agent).back()) {
       int nextTask = solution_.getAgentGlobalTasks(agent, taskPosition + 1);
       PLOGD << "Found a potential next task!\n";
@@ -923,6 +940,12 @@ void LNS::prepareNextIteration() {
               Conflicts(nextTask, agent, taskPosition + 1)) == 0 &&
           nextTask != UNDEFINED) {
         tasksToFix.insert(nextTask);
+        // No need to send the waitAtGoal or firstTask flag since for waitAtGoal we can change the goal location later anyways if this was the last task and this should be the first taks since this is the next task of something
+        PLOGD << "Deleting path for task " << nextTask << " assigned to agent "
+              << agent << " at position " << taskPosition + 1 << std::endl;
+        
+        solution_.pathTable.deletePath(
+            agent, solution_.agents[agent].taskPaths[taskPosition + 1]);
         PLOGD << "Next task: " << nextTask << endl;
       }
     }
@@ -939,11 +962,29 @@ void LNS::prepareNextIteration() {
     lnsNeighborhood_.removedTasksPathSize.insert(
         make_pair(invalidTask.task,
                   solution_.agents[agent].taskPaths[taskPosition].size()));
-    solution_.agents[agent].taskPaths[taskPosition] = AgentTaskPath();
+    bool waitAtGoal =
+             (invalidTask.task == solution_.getAgentGlobalTasks(agent).back()),
+         firstTask =
+             (invalidTask.task == solution_.getAgentGlobalTasks(agent).front());
+    PLOGD << "Deleting path for task " << invalidTask.task
+          << " assigned to agent " << invalidTask.agent << " at position "
+          << invalidTask.taskPosition + 1 << std::endl;
+    solution_.pathTable.deletePath(
+        agent, solution_.agents[agent].taskPaths[taskPosition], waitAtGoal,
+        firstTask);
+    solution_.agents[agent].taskPaths[taskPosition] = Path();
+    
   }
 
   // Marking past information about conflicting tasks
   for (int affAgent : affectedAgents) {
+
+    for (int localTask  = 1; localTask < (int)solution_.getAgentGlobalTasks(affAgent).size(); localTask++) {
+      if (solution_.getAgentGlobalTasks(affAgent)[localTask - 1] == UNDEFINED && solution_.getAgentGlobalTasks(affAgent)[localTask] != UNDEFINED) {
+        int taskToFix = solution_.getAgentGlobalTasks(affAgent)[localTask];
+        tasksToFix.insert(tasksToFix);
+      }
+    }
 
     // For an affected agent there can be multiple conflicting tasks so need to do it this way
     solution_.agents[affAgent].path = AgentTaskPath();
@@ -982,16 +1023,28 @@ void LNS::prepareNextIteration() {
       assert(taskPosition <=
              (int)solution_.getAgentGlobalTasks(agent).size() - 1);
 
-      ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
+      PathTable* pathTable = nullptr;
+      if (singleAgentSolverType == "sipps") {
+        pathTable = &solution_.pathTable;
+      }
+      ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize,
+                                      pathTable);
       buildConstraintTable(constraintTable, task);
-      AgentTaskPath path = solution_.agents[agent].pathPlanner->findPathSegment(
+      Path path = solution_.agents[agent].pathPlanner->findPathSegment(
           constraintTable, startTime, taskPosition, 0);
       // We must be able to find the path for the next task. If not then we cannot move forward!
       assert(!path.empty());
       solution_.agents[agent].taskPaths[taskPosition] = path;
 
+      // Add it to the path table
+      bool waitAtGoal =
+               (task == solution_.agents[agent].taskAssignments.back()),
+           firstTask =
+               (task == solution_.agents[agent].taskAssignments.front());
+      solution_.pathTable.insertPath(agent, path, waitAtGoal, firstTask, true);
+
       // Once the path was found fix the begin times for subsequent tasks of the agent
-      patchAgentTaskPaths(agent, taskPosition);
+      patchAgentTaskPaths(agent, taskPosition, true);
     }
   }
 }
@@ -1031,7 +1084,7 @@ bool LNS::computeRegretForTask(int task) {
   ancestorsOfTask.erase(task);
 
   vector<vector<int>> agentTaskAssignments(instance_.getAgentNum());
-  vector<vector<AgentTaskPath>> agentTaskPaths(instance_.getAgentNum());
+  vector<vector<Path>> agentTaskPaths(instance_.getAgentNum());
   vector<vector<pair<int, int>>> agentPrecedenceConstraints(
       instance_.getAgentNum());
 
@@ -1106,7 +1159,7 @@ bool LNS::computeRegretForTask(int task) {
         buildConstraintTable(constraintTable, taskPacket,
                              goalLocations[localTask], &agentTaskAssignments,
                              &agentTaskPaths, &precedenceConstraints);
-        AgentTaskPath path = localPlanner.findPathSegment(
+        Path path = localPlanner.findPathSegment(
             constraintTable, startTime, localTask, 0);
         // We must be able to find the path for the next task. If not then we cannot move forward!
         assert(!path.empty());
@@ -1200,7 +1253,7 @@ bool LNS::computeRegretForTask(int task) {
 
 void LNS::computeRegretForTaskWithAgent(
     TaskRegretPacket regretPacket, vector<vector<int>>* agentTaskAssignments,
-    vector<vector<AgentTaskPath>>* agentTaskPaths,
+    vector<vector<Path>>* agentTaskPaths,
     vector<pair<int, int>>* precedenceConstraints,
     pairing_heap<Utility, compare<Utility::CompareUtilities>>* serviceTimes) {
 
@@ -1233,7 +1286,7 @@ void LNS::computeRegretForTaskWithAgent(
     }
     regretPacket.taskPosition = j;
     // Create a copy of the task assignments, paths and corresponding precedence constraints so that they dont get modified
-    vector<vector<AgentTaskPath>> temporaryAgentTaskPaths = *agentTaskPaths;
+    vector<vector<Path>> temporaryAgentTaskPaths = *agentTaskPaths;
     vector<vector<int>> temporaryAgentTaskAssignments = *agentTaskAssignments;
     vector<pair<int, int>> temporaryPrecedenceConstraints =
         *precedenceConstraints;
@@ -1249,7 +1302,7 @@ void LNS::computeRegretForTaskWithAgent(
 // Need the task paths, assignments and precedence constraints as pointers so that we can reuse this code when commiting as we can make in-place changes to these data-structures
 std::variant<bool, Utility> LNS::insertTask(
     TaskRegretPacket regretPacket,
-    vector<vector<AgentTaskPath>>* agentTaskPaths,
+    vector<vector<Path>>* agentTaskPaths,
     vector<vector<int>>* agentTaskAssignments,
     vector<pair<int, int>>* precedenceConstraints) {
 
@@ -1257,7 +1310,7 @@ std::variant<bool, Utility> LNS::insertTask(
   int startTime = 0, previousTask = -1, nextTask = -1;
 
   // The task paths are all the task paths when we dont commit but if we commit they will be agent specific task paths
-  vector<vector<AgentTaskPath>>& agentTaskPathsRef = *agentTaskPaths;
+  vector<vector<Path>>& agentTaskPathsRef = *agentTaskPaths;
   vector<vector<int>>& agentTaskAssignmentsRef = *agentTaskAssignments;
   vector<pair<int, int>>& precedenceConstraintsRef = *precedenceConstraints;
 
@@ -1424,7 +1477,7 @@ std::variant<bool, Utility> LNS::insertTask(
                                goalLocations[localTask],
                                &agentTaskAssignmentsRef, &agentTaskPathsRef,
                                &precedenceConstraintsRef);
-          AgentTaskPath path = localPlanner.findPathSegment(
+          Path path = localPlanner.findPathSegment(
               constraintTable, startTime, localTask, 0);
           // We must be able to find the path for the next task. If not then we cannot move forward!
           assert(!path.empty());
@@ -1462,15 +1515,25 @@ std::variant<bool, Utility> LNS::insertTask(
         instance_.getTaskLocations(agentTaskAssignmentsRef[regretPacket.agent]);
     ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
 
-    MultiLabelSpaceTimeAStar localPlanner =
-        MultiLabelSpaceTimeAStar(instance_, regretPacket.agent);
-    localPlanner.setGoalLocations(goalLocations);
-    localPlanner.computeHeuristics();
+    PathTable* pathTablePtr = nullptr;
+    std::shared_ptr<SingleAgentSolver> localPlanner;
+    if (singleAgentSolverType == "mlastar") {
+      localPlanner = std::make_shared<MultiLabelSpaceTimeAStar>(
+          instance_, regretPacket.agent);
+    } else if (singleAgentSolverType == "sipps") {
+      pathTablePtr = &pathTableRef;
+      localPlanner = std::make_shared<SIPP>(instance_, regretPacket.agent);
+    } else {
+      PLOGE << "Incorrect single-agent solver provided!\n";
+      static_assert(true);
+    }
+    localPlanner->setGoalLocations(goalLocations);
+    localPlanner->computeHeuristics();
 
     buildConstraintTable(constraintTable, regretPacket,
                          goalLocations[taskPosition], &agentTaskAssignmentsRef,
                          &agentTaskPathsRef, &precedenceConstraintsRef);
-    AgentTaskPath path = localPlanner.findPathSegment(
+    Path path = localPlanner->findPathSegment(
         constraintTable, startTime, taskPosition, 0);
     if (path.empty()) {
       return false;
@@ -1490,7 +1553,7 @@ std::variant<bool, Utility> LNS::insertTask(
                          goalLocations[nextTaskPosition],
                          &agentTaskAssignmentsRef, &agentTaskPathsRef,
                          &precedenceConstraintsRef, true);
-    AgentTaskPath nextPath = localPlanner.findPathSegment(
+    Path nextPath = localPlanner->findPathSegment(
         constraintTable, startTime, nextTaskPosition, 0);
     if (nextPath.empty()) {
       return false;
@@ -1510,16 +1573,24 @@ std::variant<bool, Utility> LNS::insertTask(
         instance_.getTaskLocations(agentTaskAssignmentsRef[regretPacket.agent]);
     ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
 
-    MultiLabelSpaceTimeAStar localPlanner =
-        MultiLabelSpaceTimeAStar(instance_, regretPacket.agent);
-    localPlanner.setGoalLocations(goalLocations);
-    localPlanner.computeHeuristics();
+    PathTable* pathTablePtr = nullptr;
+    std::shared_ptr<SingleAgentSolver> localPlanner;
+    if (singleAgentSolverType == "mlastart") {
+      localPlanner = std::make_shared<MultiLabelSpaceTimeAStar>(
+          instance_, regretPacket.agent);
+    } else if (singleAgentSolverType == "sipps") {
+      pathTablePtr = &pathTableRef;
+      localPlanner = std::make_shared<SIPP>(instance_, regretPacket.agent);
+    } else {
+      PLOGE << "Incorrect single-agent solver provided!\n";
+      static_assert(true);
+    }
 
     buildConstraintTable(constraintTable, regretPacket,
                          goalLocations[regretPacket.taskPosition],
                          &agentTaskAssignmentsRef, &agentTaskPathsRef,
                          &precedenceConstraintsRef);
-    AgentTaskPath path = localPlanner.findPathSegment(
+    Path path = localPlanner->findPathSegment(
         constraintTable, startTime, regretPacket.taskPosition, 0);
     if (path.empty()) {
       return false;
@@ -1581,8 +1652,17 @@ void LNS::commitAncestorTaskOf(
       int ancestorTaskPosition =
           previousSolution_.getLocalTaskIndex(ancestorTaskAgent, ancestorTask);
 
-      AgentTaskPath ancestorPath = previousSolution_.agents[ancestorTaskAgent]
-                                       .taskPaths[ancestorTaskPosition];
+      Path ancestorPath = previousSolution_.agents[ancestorTaskAgent]
+                              .taskPaths[ancestorTaskPosition];
+
+      if (ancestorTaskPositionRelativeToSolution == 0) {
+        ancestorPath.beginTime = 0;
+      } else {
+        ancestorPath.beginTime =
+            solution_.agents[ancestorTaskAgent]
+                .taskPaths[ancestorTaskPositionRelativeToSolution - 1]
+                .endTime();
+      }
 
       solution_.agents[ancestorTaskAgent].pathPlanner->goalLocations.insert(
           solution_.agents[ancestorTaskAgent]
@@ -1603,6 +1683,65 @@ void LNS::commitAncestorTaskOf(
           solution_.agents[ancestorTaskAgent].taskPaths.begin() +
               ancestorTaskPositionRelativeToSolution,
           ancestorPath);
+
+      // std::variant<bool, pair<int, int>> result =
+      //     solution_.pathTable.validatePath(
+      //         ancestorTaskAgent, ancestorPath,
+      //         ancestorTaskPositionRelativeToSolution == 0);
+
+      // if (!std::holds_alternative<bool>(result)) {
+      //   // This means there must be some offending/conflicting task/agent which we need to recompute the path for
+
+      //   pair<int, int> offendingResult = std::get<pair<int, int>>(result);
+      //   int offendingAgent = offendingResult.first,
+      //       offendingTimestep = offendingResult.second;
+
+      //   int offendingTaskPosition = -1;
+      //   for (const Path& agentPaths :
+      //        solution_.agents[offendingAgent].taskPaths) {
+      //     if (agentPaths.beginTime > offendingTimestep) {
+      //       break;
+      //     }
+      //     offendingTaskPosition++;
+      //   }
+
+      //   offendingTaskPosition--;
+      //   int offendingTask = solution_.agents[offendingAgent]
+      //                           .taskAssignments[offendingTaskPosition];
+
+      //   int offendingStartTime = -1;
+      //   if (offendingTaskPosition == 0) {
+      //     offendingStartTime = 0;
+      //   } else {
+      //     offendingStartTime = solution_.agents[offendingAgent]
+      //                              .taskPaths[offendingStartTime - 1]
+      //                              .endTime();
+      //   }
+
+      //   PathTable* pathTablePtr = nullptr;
+      //   if (singleAgentSolverType == "sipps") {
+      //     pathTablePtr = &solution_.pathTable;
+      //   }
+      //   ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize,
+      //                                   pathTablePtr);
+      //   buildConstraintTable(constraintTable, offendingTask);
+      //   constraintTable.addPath(ancestorPath, ancestorTask == solution_.agents[ancestorTaskAgent].taskAssignments.back());
+      //   Path path =
+      //       solution_.agents[offendingAgent].pathPlanner->findPathSegment(
+      //           constraintTable, offendingStartTime, offendingTaskPosition, 0);
+      //   // We must be able to insert this path for this task as its the best regret path and we did try it before i.e it must have succeeded then
+      //   assert(!path.empty());
+      //   solution_.agents[offendingAgent].taskPaths[offendingTaskPosition] = path;
+
+      //   patchAgentTaskPaths(offendingAgent, offendingTaskPosition);
+      // }
+
+      // Add it to the path table
+      // bool waitAtGoal =
+      //     (ancestorTask ==
+      //      solution_.agents[ancestorTaskAgent].taskAssignments.back());
+      // solution_.pathTable.insertPath(ancestorTaskAgent, ancestorPath,
+      //                                waitAtGoal);
 
       solution_.taskAgentMap[ancestorTask] = ancestorTaskAgent;
 
@@ -1661,7 +1800,7 @@ void LNS::commitAncestorTaskOf(
         buildConstraintTable(
             constraintTable,
             solution_.agents[agent].taskAssignments[localTask]);
-        AgentTaskPath path =
+        Path path =
             solution_.agents[agent].pathPlanner->findPathSegment(
                 constraintTable, startTime, localTask, 0);
         // We must be able to find the path for the next task. If not then we cannot move forward!
@@ -1824,7 +1963,6 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
 
     vector<int> goalLocations = instance_.getTaskLocations(
         solution_.agents[bestRegretPacket.agent].taskAssignments);
-    ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
 
     solution_.agents[bestRegretPacket.agent].pathPlanner->setGoalLocations(
         goalLocations);
@@ -1837,13 +1975,30 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
              bestRegretPacket.task) -
         solution_.agents[bestRegretPacket.agent].taskAssignments.begin();
 
+    PathTable* pathTablePtr = nullptr;
+    if (singleAgentSolverType == "sipps") {
+      pathTablePtr = &solution_.pathTable;
+    }
+
+    ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize, pathTablePtr);
     buildConstraintTable(constraintTable, bestRegretPacket.task);
-    AgentTaskPath path =
+    Path path =
         solution_.agents[bestRegretPacket.agent].pathPlanner->findPathSegment(
             constraintTable, startTime, taskPosition, 0);
     // We must be able to insert this path for this task as its the best regret path and we did try it before i.e it must have succeeded then
     assert(!path.empty());
     solution_.agents[bestRegretPacket.agent].taskPaths[taskPosition] = path;
+
+    // Add it to the path table
+    bool waitAtGoal =
+             (bestRegretPacket.task ==
+              solution_.agents[bestRegretPacket.agent].taskAssignments.back()),
+         firstTask =
+             (bestRegretPacket.task ==
+              solution_.agents[bestRegretPacket.agent].taskAssignments.front());
+    solution_.pathTable.insertPath(bestRegretPacket.agent, path, waitAtGoal,
+                                   firstTask, true);
+
     solution_.agents[bestRegretPacket.agent]
         .insertIntraAgentPrecedenceConstraint(bestRegretPacket.task,
                                               taskPosition);
@@ -1859,31 +2014,57 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
     startTime = solution_.agents[bestRegretPacket.agent]
                     .taskPaths[nextTaskPosition - 1]
                     .endTime();
-    AgentTaskPath nextPath =
+    Path nextPath =
         solution_.agents[bestRegretPacket.agent].pathPlanner->findPathSegment(
             constraintTable, startTime, nextTaskPosition, 0);
     // We must be able to insert this path for this task as its the best regret path and we did try it before i.e it must have succeeded then
     assert(!nextPath.empty());
     solution_.agents[bestRegretPacket.agent].taskPaths[nextTaskPosition] =
         nextPath;
+
+    // Add it to the path table
+    waitAtGoal =
+        (nextTask ==
+         solution_.agents[bestRegretPacket.agent].taskAssignments.back()),
+    firstTask =
+        (nextTask ==
+         solution_.agents[bestRegretPacket.agent].taskAssignments.front());
+    solution_.pathTable.insertPath(bestRegretPacket.agent, nextPath, waitAtGoal,
+                                   firstTask, true);
   } else {
 
     vector<int> goalLocations = instance_.getTaskLocations(
         solution_.agents[bestRegretPacket.agent].taskAssignments);
-    ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
 
     solution_.agents[bestRegretPacket.agent].pathPlanner->setGoalLocations(
         goalLocations);
     solution_.agents[bestRegretPacket.agent].pathPlanner->computeHeuristics();
 
+    PathTable* pathTablePtr = nullptr;
+    if (singleAgentSolverType == "sipps") {
+      pathTablePtr = &solution_.pathTable;
+    }
+    ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize,
+                                    pathTablePtr);
     buildConstraintTable(constraintTable, bestRegretPacket.task);
-    AgentTaskPath path =
+    Path path =
         solution_.agents[bestRegretPacket.agent].pathPlanner->findPathSegment(
             constraintTable, startTime, bestRegretPacket.taskPosition, 0);
     // We must be able to insert this path for this task as its the best regret path and we did try it before i.e it must have succeeded then
     assert(!path.empty());
     solution_.agents[bestRegretPacket.agent]
         .taskPaths[bestRegretPacket.taskPosition] = path;
+
+    // Add it to the path table
+    bool waitAtGoal =
+             (bestRegretPacket.task ==
+              solution_.agents[bestRegretPacket.agent].taskAssignments.back()),
+         firstTask =
+             (bestRegretPacket.task ==
+              solution_.agents[bestRegretPacket.agent].taskAssignments.front());
+    solution_.pathTable.insertPath(bestRegretPacket.agent, path, waitAtGoal,
+                                   firstTask, true);
+
     solution_.agents[bestRegretPacket.agent]
         .insertIntraAgentPrecedenceConstraint(bestRegretPacket.task,
                                               bestRegretPacket.taskPosition);
@@ -1896,11 +2077,11 @@ void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
 void LNS::buildConstraintTable(ConstraintTable& constraintTable,
                                TaskRegretPacket taskPacket, int taskLocation,
                                vector<vector<int>>* agentTaskAssignments,
-                               vector<vector<AgentTaskPath>>* agentTaskPaths,
+                               vector<vector<Path>>* agentTaskPaths,
                                vector<pair<int, int>>* precedenceConstraints,
                                bool findingNextTask) {
 
-  vector<vector<AgentTaskPath>>& agentTaskPathsRef = *agentTaskPaths;
+  vector<vector<Path>>& agentTaskPathsRef = *agentTaskPaths;
   vector<vector<int>>& agentTaskAssignmentsRef = *agentTaskAssignments;
   vector<pair<int, int>>& precedenceConstraintsRef = *precedenceConstraints;
 
@@ -2087,15 +2268,41 @@ void LNS::markResolved(int globalTask) {
   lnsNeighborhood_.commitedTasks[globalTask] = true;
 }
 
-void LNS::patchAgentTaskPaths(int agent, int taskPosition) {
+void LNS::patchAgentTaskPaths(int agent, int taskPosition,
+                              bool preparingNextIteration) {
   if (taskPosition == 0) {
     // If we are the first task then ensure that we begin at 0
     solution_.agents[agent].taskPaths[taskPosition].beginTime = 0;
   }
   for (int k = taskPosition + 1;
        k < (int)solution_.agents[agent].taskAssignments.size(); k++) {
-    solution_.agents[agent].taskPaths[k].beginTime =
-        solution_.agents[agent].taskPaths[k - 1].endTime();
+
+    // if (lnsNeighborhood_.patchedTasks.count(
+    //         solution_.agents[agent].taskAssignments[k]) > 0) {
+    //   continue;
+    // }
+
+    int oldStartTime = solution_.agents[agent].taskPaths[k].beginTime;
+    int newStartTime = solution_.agents[agent].taskPaths[k - 1].endTime();
+    if (oldStartTime != newStartTime) {
+
+      solution_.agents[agent].taskPaths[k].beginTime =
+          solution_.agents[agent].taskPaths[k - 1].endTime();
+    }
+  }
+
+  if (!preparingNextIteration && singleAgentSolverType == "sipps") {
+    solution_.pathTable.deleteAgent(
+        agent, solution_.agents[agent].taskPaths.back().back().location);
+    // After deleting the agent, reinsert based on the new and correct paths with correct timestamps
+    for (int k = 0; k < (int)solution_.agents[agent].taskAssignments.size();
+         k++) {
+      bool waitAtGoal =
+          (k == (int)solution_.agents[agent].taskAssignments.size() - 1);
+      solution_.pathTable.insertPath(agent,
+                                     solution_.agents[agent].taskPaths[k],
+                                     waitAtGoal, k == 0, true);
+    }
   }
 }
 
@@ -2367,6 +2574,8 @@ Solution& Solution::operator=(const Solution& other) {
 
   this->agents = other.agents;
   this->taskAgentMap = other.taskAgentMap;
+
+  this->pathTable = other.pathTable;
 
   return *this;
 }

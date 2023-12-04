@@ -77,6 +77,9 @@ class LLNode {
 };
 
 class SingleAgentSolver {
+ protected:
+  uint64_t numExpanded_ = 0, numGenerated_ = 0, numReopened_ = 0;
+
  public:
   uint64_t numExpanded = 0, numGenerated = 0;
 
@@ -107,10 +110,20 @@ class SingleAgentSolver {
     return it - taskLocations.begin();
   }
 
+  void reset() {
+    if (numGenerated_ > 0) {
+      numExpanded += numExpanded_;
+      numGenerated += numGenerated_;
+      numReopened_ += numReopened_;
+    }
+    numExpanded_ = 0;
+    numGenerated_ = 0;
+    numReopened_ = 0;
+  }
+
   virtual string getName() const = 0;
-  virtual AgentTaskPath findPathSegment(ConstraintTable& constraintTable,
-                                        int startTime, int stage,
-                                        int lowerBound) = 0;
+  virtual Path findPathSegment(ConstraintTable& constraintTable, int startTime,
+                               int stage, int lowerBound = 0) = 0;
   list<int> getNeighbors(int curr) const { return instance.getNeighbors(curr); }
 
   SingleAgentSolver(const Instance& instance, int agent)
