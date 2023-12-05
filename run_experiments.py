@@ -89,7 +89,7 @@ def run_mapf_pc_lns(args, scene, logfile):
     commands_prog = "./build/mapf_pc_lns"
     commands_map = " -m " + args.map
     commands_agent = " -a " + scene
-    commands_args = " -k 10 -l 100 -d 0 -i 100 -t 1800 -s sota_pbs"
+    commands_args = " -k " + args.numAgents + " -l 100 -d 0 -i 100 -t 1800 -s sota_pbs"
     full_command = commands_prog + commands_map + commands_agent + commands_args
     run_subprocess(full_command, args, logfile)
     time.sleep(0.75)  # adding some buffer time between runs
@@ -246,6 +246,9 @@ def main():
         required=True,
         dest="logdir",
         help="Path to the logging directroy",
+    )
+    parser.add_argument(
+        "--num_agents", required=True, dest="numAgents", help="Number of agents"
     )
 
     args = parser.parse_args()
