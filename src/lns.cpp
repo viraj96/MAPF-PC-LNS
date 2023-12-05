@@ -899,7 +899,13 @@ void LNS::prepareNextIteration() {
     // If the invalidated task was not the last local task of this agent then t_id + 1 exists
     // If the invalid task was not the last task
     if (invalidTask.task != solution_.getAgentGlobalTasks(agent).back()) {
-      int nextTask = solution_.getAgentGlobalTasks(agent, taskPosition + 1);
+      int nextTask = UNDEFINED, nextTaskPosition = taskPosition + 1;
+      while (nextTask == UNDEFINED &&
+             nextTaskPosition <
+                 (int)solution_.getAgentGlobalTasks(agent).size()) {
+        nextTask = solution_.getAgentGlobalTasks(agent)[nextTaskPosition];
+        nextTaskPosition++;
+      }
       PLOGD << "Found a potential next task!\n";
       // Next task can still be undefined in the case where that task was removed in the previous iteration of this loop
       if (lnsNeighborhood_.removedTasks.count(
