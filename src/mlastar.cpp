@@ -193,16 +193,10 @@ AgentTaskPath MultiLabelSpaceTimeAStar::findPathSegment(
       delete next;
     }
     auto timeEnd = ((fsec)(Time::now() - timeStart)).count();
-    if (timeEnd > 30) {
-      printSearchTree();
-    }
   }
 
   auto timeEnd = ((fsec)(Time::now() - timeStart)).count();
   // std::cout << "Planning Time = " << timeEnd << std::endl;
-  if (timeEnd > 30) {
-    printSearchTree();
-  }
 
   releaseNodes();
   return path;
