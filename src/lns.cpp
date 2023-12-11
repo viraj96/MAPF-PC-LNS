@@ -204,8 +204,14 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
 
   for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
     assert(!resetPaths[agent].empty());
+    int counter = 0;
     for (PathEntry entry : resetPaths[agent].path) {
+      if (counter == 0) {
+        counter++;
+        continue;
+      }
       solution_.agents[agent].path.path.push_back(entry);
+      counter++;
     }
   }
 
