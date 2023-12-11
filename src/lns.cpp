@@ -69,8 +69,12 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
   // Output Agent # and then followed by the task locations (non-linearized) with @ after the first location with begin time right after and -> between each location
 
   PLOGD << "Exit code of MAPF-PC " << child.exit_code() << endl;
+
   int agent = -1;
   string line;
+
+  vector<AgentTaskPath> resetPaths;
+  resetPaths.resize(solution_.numOfAgents);
   while (std::getline(inputStream, line) && !line.empty()) {
 
     // If the agent variable exceeds the total number of agents we are working with then we have read all the task assignments or all the task paths
@@ -170,11 +174,12 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
       }
       // Add the last task path
       if (!taskPath.empty()) {
-        solution_.agents[agent].taskPaths[taskIndex] = taskPath;
-        initialPaths_[solution_.agents[agent].taskAssignments[taskIndex]] =
-            taskPath;
-        taskPath = AgentTaskPath();
+        resetPaths[agent] = taskPath;
+        // solution_.agents[agent].taskPaths[taskIndex] = taskPath;
+        // initialPaths_[solution_.agents[agent].taskAssignments[taskIndex]] =
+        //     taskPath;
       }
+      taskPath = AgentTaskPath();
     }
   }
 
@@ -196,6 +201,13 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
   vector<int> agentsToCompute(instance_.getAgentNum());
   std::iota(agentsToCompute.begin(), agentsToCompute.end(), 0);
   solution_.joinPaths(agentsToCompute);
+
+  for (int agent = 0; agent < instance_.getAgentNum(); agent++) {
+    assert(!resetPaths[agent].empty());
+    for (PathEntry entry : resetPaths[agent].path) {
+      solution_.agents[agent].path.path.push_back(entry);
+    }
+  }
 
   // Gather the information
   int initialSumOfCosts = 0;
@@ -354,6 +366,18 @@ void LNS::randomRemoval() {
         solution_.getLocalTaskIndex(randomTaskAgent, randomTask);
     Conflicts conflict(randomTask, randomTaskAgent, randomTaskPosition);
     lnsNeighborhood_.removedTasks.insert(conflict);
+
+    if (randomTask % 2 == 0) {
+      // This was a pickup task
+      Conflicts randomTaskDropoff(randomTask + 1, randomTaskAgent, randomTaskPosition + 1);
+      lnsNeighborhood_.removedTasks.insert(randomTaskDropoff);
+    }
+    else {
+      // This was a dropoff task
+      Conflicts randomTaskPickup(randomTask - 1, randomTaskAgent, randomTaskPosition - 1);
+      lnsNeighborhood_.removedTasks.insert(randomTaskPickup);
+    }
+
   }
 }
 
@@ -411,6 +435,18 @@ void LNS::worstRemoval() {
         solution_.getLocalTaskIndex(worstTaskAgent, worstTask);
     Conflicts conflict(worstTask, worstTaskAgent, worstTaskPosition);
     lnsNeighborhood_.removedTasks.insert(conflict);
+
+    if (worstTask % 2 == 0) {
+      // This was a pickup task
+      Conflicts worstTaskDropoff(worstTask + 1, worstTaskAgent, worstTaskPosition + 1);
+      lnsNeighborhood_.removedTasks.insert(worstTaskDropoff);
+    }
+    else {
+      // This was a dropoff task
+      Conflicts worstTaskPickup(worstTask - 1, worstTaskAgent, worstTaskPosition - 1);
+      lnsNeighborhood_.removedTasks.insert(worstTaskPickup);
+    }
+
     worstTasksOrder.pop();
   }
 }
@@ -448,6 +484,18 @@ void LNS::shawRemoval(int prioritySize) {
   int randomTaskPosition =
       solution_.getLocalTaskIndex(randomTaskAgent, randomTask);
   Conflicts randomConflict(randomTask, randomTaskAgent, randomTaskPosition);
+
+  if (randomTask % 2 == 0) {
+    // This was a pickup task
+    Conflicts randomTaskDropoff(randomTask + 1, randomTaskAgent, randomTaskPosition + 1);
+    lnsNeighborhood_.removedTasks.insert(randomTaskDropoff);
+  }
+  else {
+    // This was a dropoff task
+    Conflicts randomTaskPickup(randomTask - 1, randomTaskAgent, randomTaskPosition - 1);
+    lnsNeighborhood_.removedTasks.insert(randomTaskPickup);
+  }
+
   lnsNeighborhood_.removedTasks.insert(randomConflict);
   PLOGD << "Shaw Removal Step -> Random Task " << randomTask << " is removed!"
         << endl;
@@ -522,6 +570,18 @@ void LNS::shawRemoval(int prioritySize) {
     Conflicts relatedConflict(relatedTask.task, relatedTask.agent,
                               relatedTask.taskPosition);
     lnsNeighborhood_.removedTasks.insert(relatedConflict);
+
+    if (relatedTask.task % 2 == 0) {
+      // This was a pickup task
+      Conflicts relatedConflictDropoff(relatedTask.task + 1, relatedTask.agent, relatedTask.taskPosition + 1);
+      lnsNeighborhood_.removedTasks.insert(relatedConflictDropoff);
+    }
+    else {
+      // This was a dropff task
+      Conflicts relatedConflictPickup(relatedTask.task - 1, relatedTask.agent, relatedTask.taskPosition - 1);
+      lnsNeighborhood_.removedTasks.insert(relatedConflictPickup);
+    }
+
   }
 }
 
@@ -666,6 +726,50 @@ bool LNS::greatDelugeAlgorithm() {
   return accepted;
 }
 
+void LNS::addResetPaths() {
+
+  vector<AgentTaskPath> resetPaths;
+  resetPaths.resize(solution_.numOfAgents);
+  for (int agent = 0; agent < solution_.numOfAgents; agent++) {
+    ConstraintTable constraintTable(instance_.numOfCols, instance_.mapSize);
+    constraintTable.goalLocation = instance_.getStartLocations()[agent];
+    for (int agentInner = 0; agentInner < solution_.numOfAgents; agentInner++) {
+      if (agentInner != agent) {
+        for (int localTask = 0; localTask < (int)solution_.agents[agentInner].taskAssignments.size(); localTask++) {
+          constraintTable.addPath(solution_.agents[agentInner].taskPaths[localTask], false);
+        }
+        if (!resetPaths[agentInner].empty()) {
+          constraintTable.addPath(resetPaths[agentInner], true);
+        }
+      }
+      else {
+        constraintTable.lengthMin =
+            max(constraintTable.lengthMin, solution_.agents[agentInner].taskPaths.back().endTime() + 1); 
+      }
+    }
+    constraintTable.latestTimestep =
+        max(constraintTable.latestTimestep, constraintTable.lengthMin);
+    
+    vector<int> goalLocations =
+        instance_.getTaskLocations(solution_.agents[agent].taskAssignments);
+    goalLocations.push_back(constraintTable.goalLocation);
+    MultiLabelSpaceTimeAStar localPlanner =
+        MultiLabelSpaceTimeAStar(instance_, agent);
+    localPlanner.setGoalLocations(goalLocations);
+    localPlanner.computeHeuristics();
+
+    int startTime = solution_.agents[agent].taskPaths.back().endTime();
+    int taskPosition = goalLocations.size() - 1;
+    resetPaths[agent] = localPlanner.findPathSegment(
+            constraintTable, startTime, taskPosition, 0);
+
+    assert(!resetPaths[agent].empty()); 
+    for (PathEntry entry : resetPaths[agent].path) {
+      solution_.agents[agent].path.path.push_back(entry);
+    }
+  }
+}
+
 bool LNS::run() {
 
   bool success = false;
@@ -679,12 +783,14 @@ bool LNS::run() {
 
   if (!success && initialSolutionStrategy != "greedy") {
     success = buildGreedySolution();
+    addResetPaths();
   }
 
   // If the initial solution strategy failed then we cannot do anything!
   if (!success) {
     return success;
   }
+
 
   initialSolutionRuntime_ = ((fsec)(Time::now() - plannerStartTime_)).count();
   runtime = initialSolutionRuntime_;
@@ -797,6 +903,11 @@ bool LNS::run() {
     vector<int> agentsToCompute(instance_.getAgentNum());
     std::iota(agentsToCompute.begin(), agentsToCompute.end(), 0);
     solution_.joinPaths(agentsToCompute);
+    
+    set<Conflicts> junk;
+    valid = validateSolution(&junk);
+
+    addResetPaths();
 
     // Compute the updated sum of costs
     solution_.sumOfCosts = 0;
@@ -1015,11 +1126,33 @@ void LNS::prepareNextIteration() {
 
 bool LNS::computeRegret() {
   lnsNeighborhood_.regretMaxHeap.clear();
+
+  vector<int> computedRegretsFor;
   for (Conflicts conflictTask : lnsNeighborhood_.removedTasks) {
-    bool enoughSpace = computeRegretForTask(conflictTask.task);
-    if (!enoughSpace) {
-      return false;
+
+    if (find(computedRegretsFor.begin(), computedRegretsFor.end(), conflictTask.task) != computedRegretsFor.end()) {
+      continue;
     }
+
+    if (conflictTask.task % 2 == 0) {
+      // This was the pickup task
+      bool enoughSpace = computeRegretForTask(conflictTask.task);
+      if (!enoughSpace) {
+        return false;
+      }
+      computedRegretsFor.push_back(conflictTask.task);
+      computedRegretsFor.push_back(conflictTask.task + 1); // Never compute regrets for dropoff, just the pickups
+    }
+    else {
+      // This was the dropoff task
+      bool enoughSpace = computeRegretForTask(conflictTask.task - 1);
+      if (!enoughSpace) {
+        return false;
+      }
+      computedRegretsFor.push_back(conflictTask.task - 1);
+      computedRegretsFor.push_back(conflictTask.task); // Never compute regrets for dropoff, just the pickups
+    }
+
   }
   return true;
 }
@@ -1742,17 +1875,30 @@ void LNS::commitAncestorTaskOf(
 
 void LNS::commitBestRegretTask(Regret bestRegret) {
 
-  PLOGD << "Commiting for task " << bestRegret.task << " to agent "
+  assert(bestRegret.task % 2 == 0); // Always commit the pickup task only. The dropoff task will follow it
+  PLOGD << "Commiting for pickup task " << bestRegret.task << " to agent "
         << bestRegret.agent << " with regret = " << bestRegret.value << endl;
 
   TaskRegretPacket bestRegretPacket = {
       bestRegret.task, bestRegret.agent, bestRegret.taskPosition, {}};
 
   commitAncestorTaskOf(bestRegret.task, std::nullopt);
+  // commitAncestorTaskOf(bestRegret.task + 1, std::nullopt);
 
   // At this point any previously empty paths must be resolved and we can use the insert task function to commit to the actual best regret task
   insertBestRegretTask(bestRegretPacket);
   markResolved(bestRegret.task);
+  
+  TaskRegretPacket bestRegretPacketDropoff = {
+    bestRegret.task + 1, bestRegret.agent, bestRegret.taskPosition + 1, {}
+  };
+  
+  PLOGD << "Commiting for dropoff task " << bestRegretPacketDropoff.task << " to agent "
+        << bestRegretPacketDropoff.agent << endl;
+
+
+  insertBestRegretTask(bestRegretPacketDropoff);
+  markResolved(bestRegretPacketDropoff.task);
 }
 
 void LNS::insertBestRegretTask(TaskRegretPacket bestRegretPacket) {
@@ -1969,7 +2115,7 @@ void LNS::buildConstraintTable(ConstraintTable& constraintTable,
     bool waitAtGoal = finalTasks[ancestorTask];
     constraintTable.addPath(
         agentTaskPathsRef[ancestorTaskAgent][ancestorTaskLocalIndex],
-        waitAtGoal);
+        false);
 
     constraintTable.lengthMin = max(
         constraintTable.lengthMin,
@@ -2015,7 +2161,7 @@ void LNS::buildConstraintTable(ConstraintTable& constraintTable, int task) {
         (int)solution_.agents[ancestorTaskAgent].taskAssignments.back();
     constraintTable.addPath(
         solution_.agents[ancestorTaskAgent].taskPaths[ancestorTaskPosition],
-        waitAtGoal);
+        false);
   }
 
   for (int ancestorTask : ancestorsOfTask) {
@@ -2158,10 +2304,34 @@ bool LNS::validateSolution(set<Conflicts>* conflictedTasks) {
       if (conflictedTasks == nullptr) {
         return false;
       }
+
       Conflicts conflictA(precedenceConstraint.first, agentA, taskPositionA);
       Conflicts conflictB(precedenceConstraint.second, agentB, taskPositionB);
       conflictedTasks->insert(conflictA);
       conflictedTasks->insert(conflictB);
+
+      if (precedenceConstraint.first % 2 == 0) {
+        // This was a pickup
+        Conflicts conflictADropoff(precedenceConstraint.first + 1, agentA, taskPositionA + 1);
+        conflictedTasks->insert(conflictADropoff);
+      }
+      else {
+        // This was a dropoff
+        Conflicts conflictAPickup(precedenceConstraint.first - 1, agentA, taskPositionA - 1);
+        conflictedTasks->insert(conflictAPickup);
+      }
+      
+      if (precedenceConstraint.second % 2 == 0) {
+        // This was a pickup
+        Conflicts conflictBDropoff(precedenceConstraint.second + 1, agentB, taskPositionB + 1);
+        conflictedTasks->insert(conflictBDropoff);
+      }
+      else {
+        // This was a dropoff
+        Conflicts conflictBPickup(precedenceConstraint.second - 1, agentB, taskPositionB - 1);
+        conflictedTasks->insert(conflictBPickup);
+      }
+
     }
   }
 
@@ -2198,9 +2368,20 @@ bool LNS::validateSolution(set<Conflicts>* conflictedTasks) {
                taskIdx < (int)solution_.getAgentGlobalTasks(agentI).size();
                taskIdx++) {
             if (solution_.agents[agentI].path.timeStamps[taskIdx] > timestep) {
-              Conflicts conflict(solution_.getAgentGlobalTasks(agentI, taskIdx),
-                                 agentI, taskIdx);
+              int conflictTask = solution_.getAgentGlobalTasks(agentI, taskIdx);
+              Conflicts conflict(conflictTask, agentI, taskIdx);
               conflictedTasks->insert(conflict);
+
+              if (conflictTask % 2 == 0) {
+                // This was a pickup task
+                Conflicts conflictDropoff(conflictTask + 1, agentI, taskIdx + 1);
+                conflictedTasks->insert(conflictDropoff);
+              }
+              else {
+                // This was a dropoff task
+                Conflicts conflictPickup(conflictTask - 1, agentI, taskIdx - 1);
+                conflictedTasks->insert(conflictPickup);
+              }
               break;
             }
           }
@@ -2208,9 +2389,20 @@ bool LNS::validateSolution(set<Conflicts>* conflictedTasks) {
                taskIdx < (int)solution_.getAgentGlobalTasks(agentJ).size();
                taskIdx++) {
             if (solution_.agents[agentJ].path.timeStamps[taskIdx] > timestep) {
-              Conflicts conflict(solution_.getAgentGlobalTasks(agentJ, taskIdx),
-                                 agentJ, taskIdx);
+              int conflictTask = solution_.getAgentGlobalTasks(agentJ, taskIdx);
+              Conflicts conflict(conflictTask, agentJ, taskIdx);
               conflictedTasks->insert(conflict);
+              
+              if (conflictTask % 2 == 0) {
+                // This was a pickup task
+                Conflicts conflictDropoff(conflictTask + 1, agentJ, taskIdx + 1);
+                conflictedTasks->insert(conflictDropoff);
+              }
+              else {
+                // This was a dropoff task
+                Conflicts conflictPickup(conflictTask - 1, agentJ, taskIdx - 1);
+                conflictedTasks->insert(conflictPickup);
+              }
               break;
             }
           }
@@ -2235,9 +2427,19 @@ bool LNS::validateSolution(set<Conflicts>* conflictedTasks) {
                taskIdx < (int)solution_.getAgentGlobalTasks(agentI).size();
                taskIdx++) {
             if (solution_.agents[agentI].path.timeStamps[taskIdx] > timestep) {
-              Conflicts conflict(solution_.getAgentGlobalTasks(agentI, taskIdx),
-                                 agentI, taskIdx);
+              int conflictTask = solution_.getAgentGlobalTasks(agentI, taskIdx);
+              Conflicts conflict(conflictTask, agentI, taskIdx);
               conflictedTasks->insert(conflict);
+              if (conflictTask % 2 == 0) {
+                // This was a pickup task
+                Conflicts conflictDropoff(conflictTask + 1, agentI, taskIdx + 1);
+                conflictedTasks->insert(conflictDropoff);
+              }
+              else {
+                // This was a dropoff task
+                Conflicts conflictPickup(conflictTask - 1, agentI, taskIdx - 1);
+                conflictedTasks->insert(conflictPickup);
+              }
               break;
             }
           }
@@ -2245,9 +2447,19 @@ bool LNS::validateSolution(set<Conflicts>* conflictedTasks) {
                taskIdx < (int)solution_.getAgentGlobalTasks(agentJ).size();
                taskIdx++) {
             if (solution_.agents[agentJ].path.timeStamps[taskIdx] > timestep) {
-              Conflicts conflict(solution_.getAgentGlobalTasks(agentJ, taskIdx),
-                                 agentJ, taskIdx);
+              int conflictTask = solution_.getAgentGlobalTasks(agentJ, taskIdx);
+              Conflicts conflict(conflictTask, agentJ, taskIdx);
               conflictedTasks->insert(conflict);
+              if (conflictTask % 2 == 0) {
+                // This was a pickup task
+                Conflicts conflictDropoff(conflictTask + 1, agentJ, taskIdx + 1);
+                conflictedTasks->insert(conflictDropoff);
+              }
+              else {
+                // This was a dropoff task
+                Conflicts conflictPickup(conflictTask - 1, agentJ, taskIdx - 1);
+                conflictedTasks->insert(conflictPickup);
+              }
               break;
             }
           }
@@ -2286,19 +2498,38 @@ bool LNS::validateSolution(set<Conflicts>* conflictedTasks) {
                     [(int)solution_.getAgentGlobalTasks(agentI).size() - 1] <
                 timestep) {
               int taskIdx = solution_.getAgentGlobalTasks(agentI).size() - 1;
-              Conflicts conflict(solution_.getAgentGlobalTasks(agentI, taskIdx),
-                                 agentI, taskIdx);
+              int conflictTask = solution_.getAgentGlobalTasks(agentI, taskIdx);
+              Conflicts conflict(conflictTask, agentI, taskIdx);
               conflictedTasks->insert(conflict);
+              if (conflictTask % 2 == 0) {
+                // This was a pickup task
+                Conflicts conflictDropoff(conflictTask + 1, agentI, taskIdx + 1);
+                conflictedTasks->insert(conflictDropoff);
+              }
+              else {
+                // This was a dropoff task
+                Conflicts conflictPickup(conflictTask - 1, agentI, taskIdx - 1);
+                conflictedTasks->insert(conflictPickup);
+              }
             } else {
               for (int taskIdx = 0;
                    taskIdx < (int)solution_.getAgentGlobalTasks(agentI).size();
                    taskIdx++) {
                 if (solution_.agents[agentI].path.timeStamps[taskIdx] >
                     timestep) {
-                  Conflicts conflict(
-                      solution_.getAgentGlobalTasks(agentI, taskIdx), agentI,
-                      taskIdx);
+                  int conflictTask = solution_.getAgentGlobalTasks(agentI, taskIdx);
+                  Conflicts conflict(conflictTask, agentI, taskIdx);
                   conflictedTasks->insert(conflict);
+                  if (conflictTask % 2 == 0) {
+                    // This was a pickup task
+                    Conflicts conflictDropoff(conflictTask + 1, agentI, taskIdx + 1);
+                    conflictedTasks->insert(conflictDropoff);
+                  }
+                  else {
+                    // This was a dropoff task
+                    Conflicts conflictPickup(conflictTask - 1, agentI, taskIdx - 1);
+                    conflictedTasks->insert(conflictPickup);
+                  }
                   break;
                 }
               }
@@ -2307,19 +2538,38 @@ bool LNS::validateSolution(set<Conflicts>* conflictedTasks) {
                     [(int)solution_.getAgentGlobalTasks(agentJ).size() - 1] <
                 timestep) {
               int taskIdx = solution_.getAgentGlobalTasks(agentJ).size() - 1;
-              Conflicts conflict(solution_.getAgentGlobalTasks(agentJ, taskIdx),
-                                 agentJ, taskIdx);
+              int conflictTask = solution_.getAgentGlobalTasks(agentJ, taskIdx);
+              Conflicts conflict(conflictTask, agentJ, taskIdx);
               conflictedTasks->insert(conflict);
+              if (conflictTask % 2 == 0) {
+                // This was a pickup task
+                Conflicts conflictDropoff(conflictTask + 1, agentJ, taskIdx + 1);
+                conflictedTasks->insert(conflictDropoff);
+              }
+              else {
+                // This was a dropoff task
+                Conflicts conflictPickup(conflictTask - 1, agentJ, taskIdx - 1);
+                conflictedTasks->insert(conflictPickup);
+              }
             } else {
               for (int taskIdx = 0;
                    taskIdx < (int)solution_.getAgentGlobalTasks(agentJ).size();
                    taskIdx++) {
                 if (solution_.agents[agentJ].path.timeStamps[taskIdx] >
                     timestep) {
-                  Conflicts conflict(
-                      solution_.getAgentGlobalTasks(agentJ, taskIdx), agentJ,
-                      taskIdx);
+                  int conflictTask = solution_.getAgentGlobalTasks(agentJ, taskIdx);
+                  Conflicts conflict(conflictTask, agentJ, taskIdx);
                   conflictedTasks->insert(conflict);
+                  if (conflictTask % 2 == 0) {
+                    // This was a pickup task
+                    Conflicts conflictDropoff(conflictTask + 1, agentJ, taskIdx + 1);
+                    conflictedTasks->insert(conflictDropoff);
+                  }
+                  else {
+                    // This was a dropoff task
+                    Conflicts conflictPickup(conflictTask - 1, agentJ, taskIdx - 1);
+                    conflictedTasks->insert(conflictPickup);
+                  }
                   break;
                 }
               }

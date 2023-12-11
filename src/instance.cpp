@@ -123,7 +123,7 @@ bool Instance::loadKivaTasks() {
   taskLocations_.resize(numOfTasks_);
   vector<pair<int, int>> temporalDependencies;
 
-  for (int i = 0; i < numOfTasks_; i += 2) {
+  for (int i = 0; i < numOfTasks_ - 1; i += 2) {
     int releaseTime, startTask, goalTask, timeOfStartTask, timeOfGoalTask;
     getline(file, line);
     stringLine.clear();
@@ -141,25 +141,25 @@ bool Instance::loadKivaTasks() {
     assert(!isObstacle(taskLocations_[i]));
     assert(!isObstacle(taskLocations_[i + 1]));
 
-    temporalDependencies.emplace_back(i, i + 1);
+    // temporalDependencies.emplace_back(i, i + 1);
   }
 
-  for (pair<int, int> dependency : temporalDependencies) {
-    int i, j;
-    tie(i, j) = dependency;
-    taskDependencies_[j].push_back(i);
-    ancestors_[j].push_back(i);
-    successors_[i].push_back(j);
-    inputPrecedenceConstraints_.emplace_back(i, j);
-  }
+  // for (pair<int, int> dependency : temporalDependencies) {
+  //   int i, j;
+  //   tie(i, j) = dependency;
+  //   taskDependencies_[j].push_back(i);
+  //   ancestors_[j].push_back(i);
+  //   successors_[i].push_back(j);
+  //   inputPrecedenceConstraints_.emplace_back(i, j);
+  // }
 
   PLOGD << "# Agents: " << numOfAgents_ << "\t # Tasks: " << numOfTasks_
         << "\t # Dependencies: " << (int)temporalDependencies.size() << endl;
 
   file.close();
 
-  assert(
-      topologicalSort(this, &inputPrecedenceConstraints_, inputPlanningOrder_));
+  // assert(
+  //     topologicalSort(this, &inputPrecedenceConstraints_, inputPlanningOrder_));
 
   return true;
 }

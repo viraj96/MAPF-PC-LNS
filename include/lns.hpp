@@ -526,6 +526,8 @@ class LNS {
   bool oldBachelorsAcceptance();
   bool greatDelugeAlgorithm();
 
+  void addResetPaths();
+
   void computeMovingMetrics(int numberOfConflicts, int sumOfCosts);
 
   void printAgents() const {

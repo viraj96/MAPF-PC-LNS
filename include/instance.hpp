@@ -3,6 +3,7 @@
 #include <plog/Log.h>
 #include "common.hpp"
 
+
 class Instance {
 
  protected:
@@ -12,6 +13,7 @@ class Instance {
 
   vector<vector<int>> heuristics_;
   int numOfAgents_{}, numOfTasks_{};
+  vector<vector<int>> startLocationHeuristics_;
   vector<int> endPoints_, taskLocations_, startLocations_, inputPlanningOrder_;
   // Maps given task to all its predecessors as given in the input
   map<int, vector<int>> taskDependencies_;
@@ -122,6 +124,9 @@ class Instance {
     heuristics_.clear();
     heuristics_.resize(numOfTasks_);
 
+    startLocationHeuristics_.clear();
+    startLocationHeuristics_.resize(numOfAgents_);
+
     for (int i = 0; i < numOfTasks_; i++) {
       heuristics_[i].resize(mapSize, MAX_TIMESTEP);
       pairing_heap<Node, compare<Node::CompareNode>> heap;
@@ -139,6 +144,29 @@ class Instance {
           if (heuristics_[i][nextLocation] > current.value + 1) {
             heuristics_[i][nextLocation] = current.value + 1;
             Node next(nextLocation, heuristics_[i][nextLocation]);
+            heap.push(next);
+          }
+        }
+      }
+    }
+    
+    for (int i = 0; i < numOfAgents_; i++) {
+      startLocationHeuristics_[i].resize(mapSize, MAX_TIMESTEP);
+      pairing_heap<Node, compare<Node::CompareNode>> heap;
+
+      // h-val of the goal is always 0
+      Node root(startLocations_[i], 0);
+      startLocationHeuristics_[i][startLocations_[i]] = 0;
+
+      heap.push(root);
+
+      while (!heap.empty()) {
+        Node current = heap.top();
+        heap.pop();
+        for (int nextLocation : getNeighbors(current.location)) {
+          if (startLocationHeuristics_[i][nextLocation] > current.value + 1) {
+            startLocationHeuristics_[i][nextLocation] = current.value + 1;
+            Node next(nextLocation, startLocationHeuristics_[i][nextLocation]);
             heap.push(next);
           }
         }

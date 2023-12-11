@@ -103,8 +103,13 @@ class SingleAgentSolver {
     vector<int> taskLocations = instance.getTaskLocations();
     auto it =
         std::find(taskLocations.begin(), taskLocations.end(), taskLocation);
-    assert(it != taskLocations.end());
-    return it - taskLocations.begin();
+    // assert(it != taskLocations.end());
+    if (it != taskLocations.end()) {
+      return it - taskLocations.begin();
+    }
+    else {
+      return UNDEFINED;
+    }
   }
 
   virtual string getName() const = 0;

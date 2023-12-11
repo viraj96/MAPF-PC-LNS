@@ -160,6 +160,23 @@ set<Conflicts> extractNConflicts(int size, const set<Conflicts>& conflicts) {
       break;
     }
     result.insert(conflict);
+
+    int correspondingTask = -1;
+    if (conflict.task % 2 == 0) {
+      // This was a pickup task
+      correspondingTask = conflict.task + 1;
+    }
+    else {
+      correspondingTask = conflict.task - 1;
+    }
+
+    for (Conflicts innerConflict : conflicts) {
+      if (innerConflict.task == correspondingTask) {
+        result.insert(innerConflict);
+        break;
+      }
+    }
+
     i++;
   }
   return result;
