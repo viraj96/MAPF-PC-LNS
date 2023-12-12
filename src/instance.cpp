@@ -73,13 +73,13 @@ bool Instance::loadKivaMap() {
     getline(file, line);
     for (int j = 1; j < numOfCols - 1; j++) {
       map_[linearizeCoordinate(i, j)] = (line[j - 1] == '@');
-      if (line[j] == 'r') {
+      if (line[j - 1] == 'r') {
         // This is a robot spawn location
         startLocations_[agentNum] = linearizeCoordinate(i, j);
         assert(!isObstacle(startLocations_[agentNum]));
         agentNum++;
       }
-      if (line[j] == 'e') {
+      if (line[j - 1] == 'e') {
         // This is a task spawn location
         endPoints_.push_back(linearizeCoordinate(i, j));
         assert(!isObstacle(endPoints_[endPointNum]));

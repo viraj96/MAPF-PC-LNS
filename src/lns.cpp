@@ -1101,7 +1101,8 @@ void LNS::prepareNextIteration() {
   lnsNeighborhood_.patchedTasks = tasksToFix;
 
   // Find the paths for the tasks whose previous tasks were removed
-  for (int task : instance_.getInputPlanningOrder()) {
+
+  for (int task = 0; task < instance_.getTasksNum(); task++) {
     if (tasksToFix.count(task) > 0) {
 
       PLOGD << "Going to find path for next task: " << task << endl;
@@ -1724,46 +1725,165 @@ void LNS::commitAncestorTaskOf(
         continue;
       }
 
-      int ancestorTaskAgent = previousSolution_.taskAgentMap[ancestorTask];
-      assert(ancestorTaskAgent != UNASSIGNED);
+      if (ancestorTask % 2 == 0) {
+        // This was the pickup task
+        int ancestorTaskAgent = previousSolution_.taskAgentMap[ancestorTask];
+        assert(ancestorTaskAgent != UNASSIGNED);
 
-      PLOGD << "Commiting ancestor task " << ancestorTask << " to agent "
-            << ancestorTaskAgent << " using previous solution" << endl;
+        PLOGD << "Commiting ancestor task " << ancestorTask << " to agent "
+              << ancestorTaskAgent << " using previous solution" << endl;
 
-      int ancestorTaskPositionRelativeToSolution = extractOldLocalTaskIndex(
-          ancestorTask,
-          previousSolution_.agents[ancestorTaskAgent].taskAssignments,
-          solution_.agents[ancestorTaskAgent].taskAssignments);
-      int ancestorTaskPosition =
-          previousSolution_.getLocalTaskIndex(ancestorTaskAgent, ancestorTask);
+        int ancestorTaskPositionRelativeToSolution = extractOldLocalTaskIndex(
+            ancestorTask,
+            previousSolution_.agents[ancestorTaskAgent].taskAssignments,
+            solution_.agents[ancestorTaskAgent].taskAssignments);
+        int ancestorTaskPosition =
+            previousSolution_.getLocalTaskIndex(ancestorTaskAgent, ancestorTask);
 
-      AgentTaskPath ancestorPath = previousSolution_.agents[ancestorTaskAgent]
-                                       .taskPaths[ancestorTaskPosition];
+        AgentTaskPath ancestorPath = previousSolution_.agents[ancestorTaskAgent]
+                                        .taskPaths[ancestorTaskPosition];
 
-      solution_.agents[ancestorTaskAgent].pathPlanner->goalLocations.insert(
-          solution_.agents[ancestorTaskAgent]
-                  .pathPlanner->goalLocations.begin() +
-              ancestorTaskPositionRelativeToSolution,
-          instance_.getTaskLocations(ancestorTask));
-      solution_.agents[ancestorTaskAgent].pathPlanner->computeHeuristics();
+        solution_.agents[ancestorTaskAgent].pathPlanner->goalLocations.insert(
+            solution_.agents[ancestorTaskAgent]
+                    .pathPlanner->goalLocations.begin() +
+                ancestorTaskPositionRelativeToSolution,
+            instance_.getTaskLocations(ancestorTask));
+        solution_.agents[ancestorTaskAgent].pathPlanner->computeHeuristics();
 
-      solution_.agents[ancestorTaskAgent].taskAssignments.insert(
-          solution_.agents[ancestorTaskAgent].taskAssignments.begin() +
-              ancestorTaskPositionRelativeToSolution,
-          ancestorTask);
+        solution_.agents[ancestorTaskAgent].taskAssignments.insert(
+            solution_.agents[ancestorTaskAgent].taskAssignments.begin() +
+                ancestorTaskPositionRelativeToSolution,
+            ancestorTask);
 
-      solution_.agents[ancestorTaskAgent].insertIntraAgentPrecedenceConstraint(
-          ancestorTask, ancestorTaskPositionRelativeToSolution);
+        solution_.agents[ancestorTaskAgent].insertIntraAgentPrecedenceConstraint(
+            ancestorTask, ancestorTaskPositionRelativeToSolution);
 
-      solution_.agents[ancestorTaskAgent].taskPaths.insert(
-          solution_.agents[ancestorTaskAgent].taskPaths.begin() +
-              ancestorTaskPositionRelativeToSolution,
-          ancestorPath);
+        solution_.agents[ancestorTaskAgent].taskPaths.insert(
+            solution_.agents[ancestorTaskAgent].taskPaths.begin() +
+                ancestorTaskPositionRelativeToSolution,
+            ancestorPath);
 
-      solution_.taskAgentMap[ancestorTask] = ancestorTaskAgent;
+        solution_.taskAgentMap[ancestorTask] = ancestorTaskAgent;
 
-      // The ancestor of the task that was in the conflict set has now been committed using its old path, hence we need to mark it as resolved now
-      markResolved(ancestorTask);
+        // The ancestor of the task that was in the conflict set has now been committed using its old path, hence we need to mark it as resolved now
+        markResolved(ancestorTask);
+        
+        // Now do the corresponding dropoff
+        
+        int ancestorTaskDropoff = ancestorTask + 1;
+        AgentTaskPath ancestorPathDropoff = previousSolution_.agents[ancestorTaskAgent]
+                                        .taskPaths[ancestorTaskPosition + 1];
+        
+        PLOGD << "Commiting ancestor task dropff " << ancestorTaskDropoff << " to agent "
+              << ancestorTaskAgent << " using previous solution" << endl;
+       
+        solution_.agents[ancestorTaskAgent].pathPlanner->goalLocations.insert(
+            solution_.agents[ancestorTaskAgent]
+                    .pathPlanner->goalLocations.begin() +
+                ancestorTaskPositionRelativeToSolution + 1,
+            instance_.getTaskLocations(ancestorTaskDropoff));
+        solution_.agents[ancestorTaskAgent].pathPlanner->computeHeuristics();
+
+        solution_.agents[ancestorTaskAgent].taskAssignments.insert(
+            solution_.agents[ancestorTaskAgent].taskAssignments.begin() +
+                ancestorTaskPositionRelativeToSolution + 1,
+            ancestorTaskDropoff);
+
+        solution_.agents[ancestorTaskAgent].insertIntraAgentPrecedenceConstraint(
+            ancestorTaskDropoff, ancestorTaskPositionRelativeToSolution + 1);
+
+        solution_.agents[ancestorTaskAgent].taskPaths.insert(
+            solution_.agents[ancestorTaskAgent].taskPaths.begin() +
+                ancestorTaskPositionRelativeToSolution + 1,
+            ancestorPathDropoff);
+
+        solution_.taskAgentMap[ancestorTaskDropoff] = ancestorTaskAgent;
+
+        // The ancestor of the task that was in the conflict set has now been committed using its old path, hence we need to mark it as resolved now
+        markResolved(ancestorTaskDropoff);
+      } 
+      else {
+        // This was the dropoff task
+
+        int ancestorTaskPickup = ancestorTask - 1;
+        int ancestorTaskAgent = previousSolution_.taskAgentMap[ancestorTaskPickup];
+        assert(ancestorTaskAgent != UNASSIGNED);
+
+        PLOGD << "Commiting ancestor task pickup " << ancestorTaskPickup << " to agent "
+              << ancestorTaskAgent << " using previous solution" << endl;
+
+        int ancestorTaskPositionRelativeToSolution = extractOldLocalTaskIndex(
+            ancestorTaskPickup,
+            previousSolution_.agents[ancestorTaskAgent].taskAssignments,
+            solution_.agents[ancestorTaskAgent].taskAssignments);
+        int ancestorTaskPosition =
+            previousSolution_.getLocalTaskIndex(ancestorTaskAgent, ancestorTaskPickup);
+
+        AgentTaskPath ancestorPathPickup = previousSolution_.agents[ancestorTaskAgent]
+                                        .taskPaths[ancestorTaskPosition];
+
+        solution_.agents[ancestorTaskAgent].pathPlanner->goalLocations.insert(
+            solution_.agents[ancestorTaskAgent]
+                    .pathPlanner->goalLocations.begin() +
+                ancestorTaskPositionRelativeToSolution,
+            instance_.getTaskLocations(ancestorTaskPickup));
+        solution_.agents[ancestorTaskAgent].pathPlanner->computeHeuristics();
+
+        solution_.agents[ancestorTaskAgent].taskAssignments.insert(
+            solution_.agents[ancestorTaskAgent].taskAssignments.begin() +
+                ancestorTaskPositionRelativeToSolution,
+            ancestorTaskPickup);
+
+        solution_.agents[ancestorTaskAgent].insertIntraAgentPrecedenceConstraint(
+            ancestorTaskPickup, ancestorTaskPositionRelativeToSolution);
+
+        solution_.agents[ancestorTaskAgent].taskPaths.insert(
+            solution_.agents[ancestorTaskAgent].taskPaths.begin() +
+                ancestorTaskPositionRelativeToSolution,
+            ancestorPathPickup);
+
+        solution_.taskAgentMap[ancestorTaskPickup] = ancestorTaskAgent;
+
+        // The ancestor of the task that was in the conflict set has now been committed using its old path, hence we need to mark it as resolved now
+        markResolved(ancestorTaskPickup);
+        
+        // Now do the corresponding dropoff
+        
+        
+        int ancestorTaskDropoff = ancestorTask;
+        AgentTaskPath ancestorPathDropoff = previousSolution_.agents[ancestorTaskAgent]
+                                        .taskPaths[ancestorTaskPosition + 1];
+        
+        PLOGD << "Commiting ancestor task dropff " << ancestorTaskDropoff << " to agent "
+              << ancestorTaskAgent << " using previous solution" << endl;
+       
+        solution_.agents[ancestorTaskAgent].pathPlanner->goalLocations.insert(
+            solution_.agents[ancestorTaskAgent]
+                    .pathPlanner->goalLocations.begin() +
+                ancestorTaskPositionRelativeToSolution + 1,
+            instance_.getTaskLocations(ancestorTaskDropoff));
+        solution_.agents[ancestorTaskAgent].pathPlanner->computeHeuristics();
+
+        solution_.agents[ancestorTaskAgent].taskAssignments.insert(
+            solution_.agents[ancestorTaskAgent].taskAssignments.begin() +
+                ancestorTaskPositionRelativeToSolution + 1,
+            ancestorTaskDropoff);
+
+        solution_.agents[ancestorTaskAgent].insertIntraAgentPrecedenceConstraint(
+            ancestorTaskDropoff, ancestorTaskPositionRelativeToSolution + 1);
+
+        solution_.agents[ancestorTaskAgent].taskPaths.insert(
+            solution_.agents[ancestorTaskAgent].taskPaths.begin() +
+                ancestorTaskPositionRelativeToSolution + 1,
+            ancestorPathDropoff);
+
+        solution_.taskAgentMap[ancestorTaskDropoff] = ancestorTaskAgent;
+
+        // The ancestor of the task that was in the conflict set has now been committed using its old path, hence we need to mark it as resolved now
+        markResolved(ancestorTaskDropoff);
+
+      }
+
     }
   }
 
