@@ -1367,16 +1367,16 @@ void LNS::computeRegretForTaskWithAgent(
        j >= 0; j--) {
     int beginTime = (*agentTaskPaths)[regretPacket.agent][j].beginTime,
         endTime = (*agentTaskPaths)[regretPacket.agent][j].endTime();
-    if ((regretPacket.earliestTimestep > endTime) ||
+    if (((regretPacket.earliestTimestep > endTime) ||
         (regretPacket.earliestTimestep <= endTime &&
-         regretPacket.earliestTimestep >= beginTime)) {
+         regretPacket.earliestTimestep >= beginTime)) && j + 1 % 2 == 0) {
       firstValidPosition = j + 1;
       break;
     }
   }
 
   for (int j = firstValidPosition;
-       j <= (int)(*agentTaskAssignments)[regretPacket.agent].size(); j++) {
+       j <= (int)(*agentTaskAssignments)[regretPacket.agent].size(); j+=2) {
 
     if (find_if(begin(lnsNeighborhood_.removedTasks),
                 end(lnsNeighborhood_.removedTasks),
