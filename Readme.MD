@@ -1,3 +1,8 @@
+Dependencies include:
+
+1. Boost(1.71)
+2. PLog - For debugging
+
 Steps to run the code:
 
 1. Clone the repository 
