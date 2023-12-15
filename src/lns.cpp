@@ -54,7 +54,7 @@ bool LNS::buildGreedySolutionWithMAPFPC(const string& variant) {
                    instance_.getMapName() + " -a " +
                    instance_.getAgentTaskFName() + " -k " +
                    std::to_string(instance_.getAgentNum()) + " -t " +
-                   std::to_string(30) + " --solver " + solver;
+                   std::to_string(120) + " --solver " + solver;
 
   // Run a child process to spawn the MAPC-PC codebase with the current map and agent informations
   namespace bp = boost::process;
