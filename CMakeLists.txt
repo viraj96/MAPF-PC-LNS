@@ -8,6 +8,8 @@ add_compile_options(-Wall -Wextra -g -pthread)
 find_package(plog)
 find_package(Boost 1.71.0 REQUIRED COMPONENTS program_options system filesystem thread)
 
+add_subdirectory(tools/nlohmann_json)
+set(JSON_BuildTests OFF CACHE INTERNAL "")
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include
     ${Boost_INCLUDE_DIRS})
@@ -15,4 +17,4 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include
 file(GLOB SOURCES "src/*.cpp")
 
 add_executable(mapf_pc_lns ${SOURCES})
-target_link_libraries(mapf_pc_lns ${Boost_LIBRARIES} pthread plog::plog)
+target_link_libraries(mapf_pc_lns ${Boost_LIBRARIES} pthread plog::plog nlohmann_json::nlohmann_json)
