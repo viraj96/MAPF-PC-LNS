@@ -12,9 +12,10 @@ add_subdirectory(tools/nlohmann_json)
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/robot_arm_include
     ${Boost_INCLUDE_DIRS})
 
-file(GLOB SOURCES "src/*.cpp")
+file(GLOB SOURCES "src/*.cpp" "robot_arm_src/*.cpp")
 
 add_executable(mapf_pc_lns ${SOURCES})
 target_link_libraries(mapf_pc_lns ${Boost_LIBRARIES} pthread plog::plog nlohmann_json::nlohmann_json)
